@@ -16,12 +16,19 @@
 
 ## 安装
 
-```bash
-# 从 npm 安装
-dsh plugin --profile web add dsh-obsidian-sync
+### 方式一：从 npm 安装（推荐）
 
-# 或从本地安装
-dsh plugin --profile web add ./dsh-obsidian-sync
+```bash
+dsh plugin --profile web add dsh-obsidian-sync
+```
+
+### 方式二：从本地路径安装
+
+```bash
+cd dsh-obsidian-sync
+npm install
+npm run build
+dsh plugin --profile web add .
 ```
 
 ## 配置
@@ -32,6 +39,8 @@ dsh plugin --profile web add ./dsh-obsidian-sync
 obsidian-sync:
   vaultPath: "D:/path/to/your/obsidian/vault"
   autoSync: true
+  syncOnTurnEnd: true
+  readBeforeTurn: true
 ```
 
 ## 使用
@@ -59,3 +68,8 @@ npm publish
 ## 许可证
 
 MIT
+
+---
+
+**作者**: Dingpenghui-good  
+**仓库**: https://github.com/Dingpenghui-good/dsh-obsidian-sync
