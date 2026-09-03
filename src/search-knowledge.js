@@ -1,4 +1,4 @@
-﻿#!/usr/bin/env node
+#!/usr/bin/env node
 /**
  * 搜索 Obsidian 知识库
  * 用法: node search-knowledge.js <topic> [limit]

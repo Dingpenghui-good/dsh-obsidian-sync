@@ -1,4 +1,4 @@
-﻿#!/usr/bin/env node
+#!/usr/bin/env node
 /**
  * 同步 DSH 会话到 Obsidian
  * 用法: node sync-session.js --session=<id> --summary=<text> --tags=<a,b,c>
