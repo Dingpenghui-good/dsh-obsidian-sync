@@ -1,0 +1,28 @@
+﻿# DSH Plugin Configuration
+# Obsidian Sync Plugin
+
+id: obsidian-sync
+name: DSH Obsidian Sync
+description: 自动同步 DSH 对话到 Obsidian 知识库
+
+# 注册 Tool
+tools:
+  - id: obsidian.read_knowledge
+    name: obsidian_read_knowledge
+    description: 读取 Obsidian 知识库中相关主题的内容
+    enabled: true
+
+  - id: obsidian.sync_session
+    name: obsidian_sync_session
+    description: 将当前 DSH 会话内容同步到 Obsidian 知识库
+    enabled: true
+
+# 事件钩子
+hooks:
+  - event: turn/start
+    action: read_knowledge
+    enabled: true
+
+  - event: turn/end
+    action: sync_session
+    enabled: true

@@ -1,0 +1,35 @@
+﻿{
+  ""name"": ""dsh-obsidian-sync"",
+  ""version"": ""1.0.0"",
+  ""description"": ""DSH Plugin: Auto-sync conversations to Obsidian knowledge base"",
+  ""main"": ""lib/index.js"",
+  ""types"": ""lib/index.d.ts"",
+  ""files"": [""lib/"", ""cordis.patch.yml"", ""README.md""],
+  ""scripts"": {
+    ""build"": ""tsc"",
+    ""watch"": ""tsc --watch"",
+    ""test"": ""node tests/index.test.js""
+  },
+  ""keywords"": [""dsh"", ""obsidian"", ""knowledge-base"", ""plugin"", ""sync""],
+  ""author"": ""Dingpenghui-good"",
+  ""license"": ""MIT"",
+  ""repository"": {
+    ""type"": ""git"",
+    ""url"": ""https://github.com/Dingpenghui-good/dsh-obsidian-sync.git""
+  },
+  ""bugs"": {
+    ""url"": ""https://github.com/Dingpenghui-good/dsh-obsidian-sync/issues""
+  },
+  ""homepage"": ""https://github.com/Dingpenghui-good/dsh-obsidian-sync#readme"",
+  ""dependencies"": {
+    ""@deepseek-ai/dsh-plugin"": ""^0.1.0""
+  },
+  ""peerDependencies"": {
+    ""@deepseek-ai/dsh-plugin"": ""^0.1.0""
+  },
+  ""dsh"": {
+    ""bundle"": {
+      ""patch"": ""cordis.patch.yml""
+    }
+  }
+}
