@@ -1,0 +1,30 @@
+{
+  "vaultName": "AI-Knowledge-Base",
+  "path": "D:\\DSH\\workspace\\knowledge-base",
+  "createdAt": "2026-09-02",
+  "lastSync": "2026-09-03T09:56:00",
+  "totalConversations": 11,
+  "totalDailyLogs": 2,
+  "totalTopicNotes": 4,
+  "autoMaintenance": true,
+  "cronHourly": true,
+  "settings": {
+    "inboxFolder": "00-Inbox",
+    "dailyFolder": "01-Daily",
+    "topicFolder": "02-Topics",
+    "projectFolder": "03-Projects",
+    "archiveFolder": "04-Archive",
+    "templateFolder": "templates",
+    "metaFolder": "_meta",
+    "assetFolder": "assets",
+    "maintenanceInterval": "hourly",
+    "archiveWeekday": "Sunday"
+  },
+  "scheduledTask": {
+    "name": "KB-Maintain",
+    "status": "manual-required",
+    "setupCommand": "schtasks /create /tn KB-Maintain /tr \"cmd /c D:\\DSH\\workspace\\knowledge-base\\run-maintenance.bat\" /sc hourly /mo 1 /st 00:00 /rl highest /f",
+    "requiresAdmin": true,
+    "alternative": "双击运行 kb-maintain.vbs 即可后台自动运行"
+  }
+}

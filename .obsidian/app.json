@@ -1,0 +1,17 @@
+{
+  "alwaysUpdateLinks": true,
+  "newFileLocation": "folder",
+  "newFileFolderPath": "00-Inbox",
+  "useMarkdownLinks": true,
+  "showLineNumber": true,
+  "spellcheck": true,
+  "spellcheckDictionary": [
+    "en",
+    "zh"
+  ],
+  "attachmentFolderPath": "assets",
+  "promptDelete": false,
+  "readableLineLength": true,
+  "defaultViewMode": "source",
+  "livePreview": true
+}

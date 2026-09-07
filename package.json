@@ -1,0 +1,15 @@
+{
+  "name": "AI-Knowledge-Base",
+  "version": "1.0.0",
+  "description": "AI 维护的 Obsidian 知识库",
+  "main": "maintain.py",
+  "scripts": {
+    "init": "python maintain.py init",
+    "log": "python maintain.py log <session_id> <role> <content_file> [model]",
+    "maintain": "python maintain.py maintain",
+    "test": "python -m pytest tests/"
+  },
+  "keywords": ["obsidian", "knowledge-base", "ai"],
+  "author": "DeepSeek Harness",
+  "license": "MIT"
+}
