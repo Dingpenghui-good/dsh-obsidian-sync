@@ -1,7 +1,7 @@
-﻿{
+{
   "name": "dsh-obsidian-sync",
   "version": "2.0.1",
-  "description": "DSH Obsidian Sync 鈥?DSH Cordis 鎻掍欢锛氭寜闇€鎼滅储 Obsidian 鐭ヨ瘑搴?+ 鎸?vault 鏃㈡湁 PARA 瑙勫垯褰掓。 DSH 浼氳瘽锛堥浂 token 娉ㄥ叆銆佽繘绋嬪唴 fs銆佸€掓帓绱㈠紩銆佸箓绛?upsert锛?,
+  "description": "DSH Obsidian Sync - DSH Cordis plugin: on-demand Obsidian knowledge-base search + DSH session archiving following your vault's existing PARA rules (zero token injection, in-process fs, inverted index, idempotent upsert)",
   "type": "module",
   "main": "./lib/index.js",
   "types": "./lib/index.d.ts",
@@ -60,4 +60,3 @@
     "url": "git+https://github.com/Dingpenghui-good/dsh-obsidian-sync.git"
   }
 }
-
