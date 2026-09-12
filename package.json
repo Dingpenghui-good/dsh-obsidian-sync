@@ -1,7 +1,7 @@
-{
+﻿{
   "name": "dsh-obsidian-sync",
-  "version": "2.0.0",
-  "description": "DSH Obsidian Sync — DSH Cordis 插件：按需搜索 Obsidian 知识库 + 按 vault 既有 PARA 规则归档 DSH 会话（零 token 注入、进程内 fs、倒排索引、幂等 upsert）",
+  "version": "2.0.1",
+  "description": "DSH Obsidian Sync 鈥?DSH Cordis 鎻掍欢锛氭寜闇€鎼滅储 Obsidian 鐭ヨ瘑搴?+ 鎸?vault 鏃㈡湁 PARA 瑙勫垯褰掓。 DSH 浼氳瘽锛堥浂 token 娉ㄥ叆銆佽繘绋嬪唴 fs銆佸€掓帓绱㈠紩銆佸箓绛?upsert锛?,
   "type": "module",
   "main": "./lib/index.js",
   "types": "./lib/index.d.ts",
@@ -60,3 +60,4 @@
     "url": "git+https://github.com/Dingpenghui-good/dsh-obsidian-sync.git"
   }
 }
+
