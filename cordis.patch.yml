@@ -1,26 +1,25 @@
-﻿# DSH Obsidian Sync Plugin Configuration
+# dsh-obsidian-sync-v2 配置（Cordis 行）
+# 挂载位置：host composition（跨 session 持久化，见 editing-cordis-compositions 平面规则）
+# 用法：把下面这行加进你的 host 组（或 cordis 预设复制品的 agent.cordis.yml）：
+#
+#   - id: obsidian-sync-v2
+#     name: 'dsh-obsidian-sync-v2'
+#     config:
+#       vaultPath: 'E:/dsh-workspace/obsidian-vault'
 
-id: dsh-obsidian-sync
-name: DSH Obsidian Sync
-description: 自动同步 DSH 对话到 Obsidian 知识库
+id: obsidian-sync-v2
+name: DSH Obsidian Sync V2
+description: 按需搜索 Obsidian 知识库笔记，并按 vault 既有 PARA 规则把会话归档到 04-Archive/
 
 # 插件路径
 path: src/
 
-# 导出函数
-exports:
-  - searchKnowledgeBase
-  - syncSession
-  - extractKeywords
-  - generateSummary
-  - extractTags
-
-# 注册 Tool（通过 DSH hooks 实现）
+# 导出的两个模型 Tool
 tools:
-  - id: obsidian.read_knowledge
-    handler: searchKnowledgeBase
+  - id: obsidian.search
+    description: 在 Obsidian 知识库中按关键词搜索相关笔记（倒排索引，最多 5 条）
     enabled: true
-    
+
   - id: obsidian.sync_session
-    handler: syncSession
+    description: 把 DSH 会话按 vault 的 PARA 结构与既有命名/索引规则幂等归档到 04-Archive/
     enabled: true
