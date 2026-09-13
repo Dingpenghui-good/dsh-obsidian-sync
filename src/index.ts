@@ -73,23 +73,62 @@ export function apply(ctx: Context, config: Config = {}): void {
   let dirty = true
   let refreshing = false
 
+  /**
+   * 分词：ASCII 重叠三元组 + 中文滑动二元组（bigram）。
+   *
+   * - ASCII 字母数字：长度 ≥2 直接加入；长度 ≥4 额外加 i+=1 重叠三元组
+   * - 中文：按 Unicode CJK 字符切分，长度 1 直接加入，≥2 加滑动 bigram
+   *   这样「知识库」/「知识」可以互相命中，「连不上」/「连接不上」同理
+   */
   function tokenize(text: string): Set<string> {
-    const parts = String(text).toLowerCase().split(/[^a-z0-9\u4e00-\u9fff]+/)
+    const lower = String(text).toLowerCase()
     const seen = new Set<string>()
-    for (const p of parts) {
-      if (p.length === 0) continue
+    // 连续 ASCII 字母数字段
+    const asciiRe = /[a-z0-9]+/g
+    let m: RegExpExecArray | null
+    while ((m = asciiRe.exec(lower)) !== null) {
+      const p = m[0]
+      if (p.length < 2) continue
       seen.add(p)
-      if (/^[a-z0-9]+$/.test(p) && p.length >= 3) {
-        for (let i = 0; i + 3 <= p.length; i += 3) seen.add(p.slice(i, i + 3))
+      if (p.length >= 4) {
+        for (let i = 0; i + 3 <= p.length; i++) seen.add(p.slice(i, i + 3))
+      }
+    }
+    // 连续 CJK 段
+    const cjkRe = /[\u4e00-\u9fff]+/g
+    while ((m = cjkRe.exec(lower)) !== null) {
+      const p = m[0]
+      if (p.length === 1) {
+        seen.add(p)
+      } else {
+        for (let i = 0; i + 2 <= p.length; i++) seen.add(p.slice(i, i + 2))
+        if (p.length >= 3) seen.add(p.slice(p.length - 3))
       }
     }
     return seen
+  }
+
+  /** 为索引 entry 计算 IDF 权重表（token → 1/log(1+df)）。 */
+  function buildIdf(entries: Array<{ tokens: Set<string> }>): Map<string, number> {
+    const df = new Map<string, number>()
+    for (const entry of entries) {
+      for (const t of entry.tokens) {
+        df.set(t, (df.get(t) ?? 0) + 1)
+      }
+    }
+    const total = entries.length || 1
+    const idf = new Map<string, number>()
+    for (const [t, count] of df) {
+      idf.set(t, Math.log(total / (1 + count)))
+    }
+    return idf
   }
 
   async function rebuildIndex(): Promise<void> {
     refreshing = true
     try {
       const next = new Map(index)
+      const idfEntries: Array<{ tokens: Set<string> }> = []
       try {
         const root = await fs.resolve(vaultPath)
         const statRoot = await fs.stat(root)
@@ -109,20 +148,26 @@ export function apply(ctx: Context, config: Config = {}): void {
               if (entry.type !== 'file' || entry.name === undefined || !entry.name.endsWith('.md') || entry.name.startsWith('.')) continue
               let text: string
               try { text = await fs.readText(entry.target) } catch (_e) { continue }
-              const tokens = tokenize('\n' + entry.name + '\n' + text.slice(0, 600))
+              // 索引吃全文（~46 篇 × 几 KB，内存无压力），不再只取前 600 字
+              const tokens = tokenize('\n' + entry.name + '\n' + text)
               const displayPath = entry.target && typeof entry.target === 'object' ? entry.target.displayPath : String(entry.target)
               next.set(displayPath, { displayPath, tokens, snippet: text.slice(0, 240), size: entry.size ?? text.length })
+              idfEntries.push({ tokens })
             }
           }
         }
       } catch (_e) { /* vault 不可达：保留旧索引 */ }
       index.clear()
       for (const kv of next) index.set(kv[0], kv[1])
+      // 重建 IDF 权重表
+      idfTable = buildIdf(idfEntries)
       dirty = false
     } finally {
       refreshing = false
     }
   }
+
+  let idfTable = new Map<string, number>()
 
   async function ensureIndex(): Promise<void> {
     if (dirty) await rebuildIndex()
@@ -139,27 +184,62 @@ export function apply(ctx: Context, config: Config = {}): void {
     }, 'obsidian-sync: index refresh')
   }
 
-  function searchMatches(topic: string, limit: number): Array<{ file: string; score: number; snippet: string; size: number }> {
+  function searchMatches(topic: string, limit: number): Array<{ file: string; score: number; snippet: string; size: number; matchReason: string }> {
     const topicTokens = tokenize(topic)
-    const results: Array<{ file: string; score: number; snippet: string; size: number }> = []
+    const results: Array<{ file: string; score: number; snippet: string; size: number; matchReason: string }> = []
     for (const entry of index.values()) {
       let score = 0
-      for (const t of topicTokens) if (entry.tokens.has(t)) score++
+      const matchedKeywords: string[] = []
+      for (const t of topicTokens) {
+        if (entry.tokens.has(t)) {
+          score += idfTable.get(t) ?? 1
+          matchedKeywords.push(t)
+        }
+      }
       if (score === 0) continue
-      results.push({ file: entry.displayPath, score, snippet: entry.snippet, size: entry.size })
+      results.push({
+        file: entry.displayPath,
+        score: Math.round(score * 100) / 100,
+        snippet: entry.snippet,
+        size: entry.size,
+        matchReason: matchedKeywords.slice(0, 5).join(' '),
+      })
     }
     results.sort((a, b) => b.score - a.score)
     return results.slice(0, limit)
   }
 
   function sanitizeTitleForFilename(title: string): string {
-    const base = String(title || '').replace(/[\\/:*?"<>|]/g, ' ').replace(/\s+/g, ' ').trim()
-    return base.length > 0 ? base.slice(0, 60) : '会话'
+    const base = String(title || '')
+      .replace(/[\\/:*?"<>|（）()]/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim()
+    return base.length > 0 ? base.slice(0, 40) : '会话'
+  }
+
+  /** 确保 shortId 恰好 8 位：不足时补 SHA-1 前缀 hash。 */
+  function normalizeShortId(sessionId: string): string {
+    let s = sessionId.replace(/[^A-Za-z0-9]/g, '')
+    if (s.length >= 8) return s.slice(0, 8)
+    // 不足 8 位：用原始 sessionId 的简单 hash 补齐
+    let hash = 0
+    for (let i = 0; i < sessionId.length; i++) {
+      hash = ((hash << 5) - hash + sessionId.charCodeAt(i)) | 0
+    }
+    s = s + Math.abs(hash).toString(16).slice(0, 8)
+    return s.slice(0, 8)
   }
 
   /** vault 在 workspace 之外，写入需按调用抬升到 danger-full-access。 */
-  const widePolicy: SandboxExecutionPolicy = { mode: 'danger-full-access' }
+  const widePolicy: SandboxExecutionPolicy = { mode: 'danger-full-access', workspaceRoot: vaultPath }
 
+  /**
+   * 更新索引文件（DSH-会话归档-索引.md）的按日期段。
+   * - 找到当天段落（### YYYY-MM-DD）
+   * - 边界：下一个 `### ` 或 `## `（两个井号终止条件）
+   * - 同 shortId 已有条目 → 替换该行（幂等去重）
+   * - 否则追加到当天段落末尾
+   */
   async function updateIndexFile(entryRelPath: string, title: string, sessionId: string, dateStr: string): Promise<boolean> {
     try {
       const idxTarget = await fs.resolve(vaultPath + '/DSH-会话归档-索引.md')
@@ -168,15 +248,37 @@ export function apply(ctx: Context, config: Config = {}): void {
       const line = '\n- [[' + entryRelPath + '|' + title + ']] (' + dateStr + ', ' + sessionId + ')\n'
       const dayPos = idxContent.indexOf(dayAnchor)
       if (dayPos === -1) {
+        // 当天段落不存在：在 "## 主题分类" 之前插入
         const dayHeader = '\n### ' + dateStr + '\n' + line
         const tailPos = idxContent.indexOf('\n## 主题分类')
         const updated = tailPos === -1 ? idxContent + dayHeader : idxContent.slice(0, tailPos) + dayHeader + idxContent.slice(tailPos)
         await fs.writeText(idxTarget, updated, undefined, undefined, widePolicy)
         return true
       }
-      const dayEnd = idxContent.indexOf('\n### ', dayPos + 1)
-      const insertPos = dayEnd === -1 ? idxContent.length : dayEnd
-      const updated = idxContent.slice(0, insertPos) + line + idxContent.slice(insertPos)
+      // 找当天段落的结尾：下一个 `### ` 或 `## `（双井号终止）
+      const afterAnchor = dayPos + dayAnchor.length
+      const nextH3 = idxContent.indexOf('\n### ', afterAnchor)
+      const nextH2 = idxContent.indexOf('\n## ', afterAnchor)
+      let dayEnd = -1
+      if (nextH3 !== -1 && nextH2 !== -1) dayEnd = Math.min(nextH3, nextH2)
+      else if (nextH3 !== -1) dayEnd = nextH3
+      else if (nextH2 !== -1) dayEnd = nextH2
+      else dayEnd = idxContent.length
+
+      // 去重：当天段落内是否已有相同 shortId 的条目
+      const daySection = idxContent.slice(afterAnchor, dayEnd)
+      const shortId = normalizeShortId(sessionId)
+      const dedupePattern = new RegExp('^- \\[\\[[^\\]]*' + dateStr + '-' + shortId + '-[^\\]]*\\]\\]\\s*\\([^\\)]*\\)$', 'm')
+      const existingMatch = daySection.match(dedupePattern)
+      let updated: string
+      if (existingMatch !== null) {
+        // 替换已有行（幂等）
+        const absPos = afterAnchor + daySection.indexOf(existingMatch[0])
+        updated = idxContent.slice(0, absPos) + line.trimStart() + '\n' + idxContent.slice(absPos + existingMatch[0].length)
+      } else {
+        // 追加到段落末尾（dayEnd 前）
+        updated = idxContent.slice(0, dayEnd) + line + idxContent.slice(dayEnd)
+      }
       await fs.writeText(idxTarget, updated, undefined, undefined, widePolicy)
       return true
     } catch (_e) {
@@ -187,9 +289,9 @@ export function apply(ctx: Context, config: Config = {}): void {
   if (searchEnabled) {
     ctx.tools.register(defineTool({
       name: 'obsidian.search',
-      description: '在 Obsidian 知识库中按关键词搜索相关笔记，返回最多 5 条匹配（文件相对路径、命中片段）。按需调用，平时不产生任何 token 成本。',
+      description: '在 Obsidian 知识库中按关键词搜索相关笔记，返回最多 5 条匹配（文件相对路径、命中片段、命中关键词）。按需调用，平时不产生任何 token 成本。',
       parameters: {
-        topic: { type: 'string', required: true, description: '搜索关键词，可含多个词' },
+        topic: { type: 'string', required: true, description: '搜索关键词，可含多个词（中英文均可，自动做 CJK bigram 分词）' },
         limit: { type: 'number', description: '返回结果上限，默认 3，最大 5' },
       },
       output: {
@@ -210,14 +312,14 @@ export function apply(ctx: Context, config: Config = {}): void {
 
   ctx.tools.register(defineTool({
     name: 'obsidian.sync_session',
-    description: '把当前 DSH 会话按 Obsidian vault 的 PARA 结构与用户既有命名/索引规则，以 Markdown 笔记形式幂等写入 vault/04-Archive/，并自动把新条目挂到 DSH-会话归档-索引.md 的按日期段。摘要未变则跳过。建议传入 raw_log 原始日志路径（~/.dsh/sessions/…/session-<id>/session.v3.jsonl.zstd），落款处会生成可追溯指针。',
+    description: '把当前 DSH 会话按 Obsidian vault 的 PARA 结构与用户既有命名/索引规则，以 Markdown 笔记形式幂等写入 vault/04-Archive/，并自动把新条目挂到 DSH-会话归档-索引.md 的按日期段。摘要未变则跳过。幂等键 = date + shortId（标题变更不影响去重）。',
     parameters: {
-      session_id: { type: 'string', required: true, description: '当前会话的完整 SessionId（UUID），原样存入基本信息表' },
-      title: { type: 'string', required: true, description: '会话主题标题（将作为笔记文件名的一部分与 # 标题）' },
+      session_id: { type: 'string', required: true, description: '当前会话的完整 SessionId（UUID 或短 ID），原样存入 frontmatter 与正文' },
+      title: { type: 'string', required: true, description: '会话主题标题（写入 frontmatter 与正文 # 标题；文件名仅取前 40 字符做安全截断）' },
       summary: { type: 'string', required: true, description: '会话结论/摘要（纯文本，建议 200-800 字，包含用户需求、过程要点、交付物）' },
-      tags: { type: 'array', items: { type: 'string' }, description: '主题标签数组，最多 10 个，将进入基本信息表格' },
-      related: { type: 'array', items: { type: 'string' }, description: '关联笔记文件名（不含 .md），将生成为 [[双链]]' },
-      raw_log: { type: 'string', description: '原始会话日志的绝对路径（如 C:\\Users\\dph\\.dsh\\sessions\\--E-dsh-workspace--\\session-<id>\\session.v3.jsonl.zstd），将写入落款以便追溯' },
+      tags: { type: 'array', items: { type: 'string' }, description: '主题标签数组，最多 10 个，将写入 frontmatter tags 字段（Obsidian 原生标签）' },
+      related: { type: 'array', items: { type: 'string' }, description: '关联笔记完整文件名（含 .md 扩展名，如 2026-09-11-a9095879-xxx.md），将生成为 [[全路径双链]]' },
+      raw_log: { type: 'string', description: '原始会话日志绝对路径，格式 ~/.dsh/sessions/<project-dir>/session-<uuid>/session.v3.jsonl.zstd，将写入落款以便追溯' },
     },
     output: {
       schema: { type: 'json' },
@@ -225,30 +327,78 @@ export function apply(ctx: Context, config: Config = {}): void {
     },
     async execute(args) {
       const sessionId = String(args.session_id ?? 'unknown')
-      const title = sanitizeTitleForFilename(String(args.title ?? ''))
+      const title = String(args.title ?? '')
+      const safeTitle = sanitizeTitleForFilename(title)
       const summary = String(args.summary ?? '')
       const tags = Array.isArray(args.tags) ? args.tags.map(String).slice(0, 10) : []
       const related = Array.isArray(args.related) ? args.related.map(String).slice(0, 10) : []
       const rawLog = String(args.raw_log ?? '')
 
       const dateStr = new Date().toISOString().slice(0, 10)
-      const shortId = sessionId.replace(/[^A-Za-z0-9]/g, '').slice(0, 8)
-      const entryRelPath = '04-Archive/' + dateStr + '-' + shortId + '-' + title + '.md'
-      const relatedLines = related.map(r => '- [[' + r + ']]').join('\n')
-      const tagsLine = tags.length > 0 ? tags.map(t => '`' + t + '`').join(' ') : '通用'
-      const logLine = rawLog.trim().length > 0
-        ? '> 📎 原始日志: `' + rawLog.trim() + '`\n\n> 由 DSH Obsidian Sync Lite 自动同步\n'
-        : '> 由 DSH Obsidian Sync Lite 自动同步\n'
+      const shortId = normalizeShortId(sessionId)
 
-      const content = '# DSH 会话: ' + title + '\n\n'
+      // 幂等键 = date + shortId（标题不参与路径），写入前按前缀探测已存在文件并原地覆盖
+      const entryPrefix = dateStr + '-' + shortId + '-'
+      let entryRelPath: string
+
+      // 探测 04-Archive/ 下是否已有同前缀文件（同会话多次同步）
+      try {
+        const archiveDir = await fs.resolve(vaultPath + '/04-Archive')
+        const archiveEntries = await fs.listDir(archiveDir)
+        const existing = archiveEntries.find(e => e.type === 'file' && e.name?.startsWith(entryPrefix))
+        if (existing !== undefined && existing.name !== undefined) {
+          // 已有文件：原地覆盖（标题可能变了但幂等键不变）
+          entryRelPath = '04-Archive/' + existing.name
+        } else {
+          entryRelPath = '04-Archive/' + entryPrefix + safeTitle + '.md'
+        }
+      } catch (_e) {
+        entryRelPath = '04-Archive/' + entryPrefix + safeTitle + '.md'
+      }
+
+      // related 双链：生成全路径 [[04-Archive/xxx.md|显示名]]，写入前校验目标存在
+      const relatedLines: string[] = []
+      for (const r of related) {
+        const rFull = r.endsWith('.md') ? r : r + '.md'
+        const rRel = '04-Archive/' + rFull
+        // 校验目标存在（全路径双链）
+        try {
+          await fs.stat(await fs.resolve(vaultPath + '/' + rRel))
+          relatedLines.push('- [[' + rRel + '|' + rFull.replace(/^.*\//, '').replace(/\.md$/, '') + ']]')
+        } catch (_e) {
+          relatedLines.push('- ' + rFull + '（未找到，降级为文字引用）')
+        }
+      }
+
+      // 生成 YAML frontmatter（Obsidian 原生标签 / Dataview 可查）
+      const fmDate = dateStr
+      const fmSessionId = sessionId.replace(/[^A-Za-z0-9-]/g, '').slice(0, 8)
+      const fmTags = tags.length > 0 ? tags : []
+      const frontmatter = [
+        '---',
+        'session_id: ' + fmSessionId,
+        'full_session_id: ' + sessionId,
+        'date: ' + fmDate,
+        'tags: [' + fmTags.join(', ') + ']',
+        '---',
+        '',
+      ].join('\n')
+
+      const logLine = rawLog.trim().length > 0
+        ? '> 📎 原始日志: `' + rawLog.trim() + '`\n\n> 由 DSH Obsidian Sync 自动同步\n'
+        : '> 由 DSH Obsidian Sync 自动同步\n'
+
+      const content = frontmatter
+        + '# DSH 会话: ' + title + '\n\n'
         + '## 基本信息\n\n'
         + '| 属性 | 值 |\n|------|-----|\n'
         + '| **日期** | ' + dateStr + ' |\n'
         + '| **会话ID** | `' + sessionId + '` |\n'
         + '| **状态** | ✅ 已归档 |\n'
-        + '| **分类** | ' + tagsLine + ' |\n\n'
-        + '---\n\n## 摘要\n\n' + summary + '\n\n'
-        + (related.length > 0 ? '## 关联\n\n' + relatedLines + '\n\n---\n' : '')
+        + '| **分类** | ' + (tags.length > 0 ? tags.join(' ') : '通用') + ' |\n\n'
+        + '---\n\n'
+        + '## 摘要\n\n' + summary + '\n\n'
+        + (relatedLines.length > 0 ? '## 关联\n\n' + relatedLines.join('\n') + '\n\n---\n' : '')
         + logLine
 
       let target: FsTarget
@@ -256,7 +406,7 @@ export function apply(ctx: Context, config: Config = {}): void {
         target = await fs.resolve(vaultPath + '/' + entryRelPath)
       } catch (_e) {
         const winPath = vaultPath + '\\' + entryRelPath.split('/').join('\\')
-        try { target = await fs.resolve(winPath) } catch (_e2) { return { ok: false, error: 'cannot resolve vault entry path' } }
+        try { target = await fs.resolve(winPath) } catch (_e2) { return { ok: false, error: 'cannot resolve vault entry path', code: 'RESOLVE_FAILED' } }
       }
 
       let skipped = false
@@ -266,17 +416,42 @@ export function apply(ctx: Context, config: Config = {}): void {
         const pos = prev.indexOf(marker)
         if (pos >= 0 && prev.slice(pos + marker.length).trim() === summary.trim()) skipped = true
       } catch (_e) { /* 尚不存在 */ }
-      if (skipped) return { ok: true, skipped: true, file: entryRelPath, index: 'unchanged' }
+      if (skipped) return { ok: true, skipped: true, file: entryRelPath, reason: 'summary unchanged', index: 'unchanged' }
 
       try {
         await fs.writeText(target, content, undefined, undefined, widePolicy)
       } catch (writeErr) {
-        return { ok: false, error: 'writeText failed: ' + String(writeErr instanceof Error ? writeErr.message : writeErr) }
+        return { ok: false, error: 'writeText failed: ' + String(writeErr instanceof Error ? writeErr.message : writeErr), code: 'WRITE_FAILED' }
       }
 
       const indexOk = await updateIndexFile(entryRelPath, title, sessionId, dateStr)
       dirty = true
-      return { ok: true, skipped: false, file: entryRelPath, index: indexOk ? 'updated' : 'skipped' }
+
+      // 写入成功后自动 git commit + push（vault 有 remote 时才生效）
+      let gitStatus = 'skipped'
+      try {
+        const { execSync } = await import('node:child_process')
+        const out = execSync('git add -A && git status --porcelain', {
+          cwd: vaultPath,
+          timeout: 15000,
+          encoding: 'utf-8',
+        })
+        if (out.trim().length > 0) {
+          const msg = 'archive: ' + entryRelPath.replace(/^04-Archive\//, '')
+          execSync('git commit -m "' + msg.replace(/"/g, '\\"') + '" && git push', {
+            cwd: vaultPath,
+            timeout: 60000,
+            encoding: 'utf-8',
+          })
+          gitStatus = 'pushed'
+        } else {
+          gitStatus = 'no changes'
+        }
+      } catch (gitErr) {
+        gitStatus = 'failed: ' + String(gitErr instanceof Error ? gitErr.message : gitErr)
+      }
+
+      return { ok: true, skipped: false, file: entryRelPath, index: indexOk ? 'updated' : 'skipped', git: gitStatus }
     },
   }))
 }
