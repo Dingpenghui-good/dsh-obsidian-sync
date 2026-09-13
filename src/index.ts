@@ -217,6 +217,30 @@ export function apply(ctx: Context, config: Config = {}): void {
     return base.length > 0 ? base.slice(0, 40) : '会话'
   }
 
+  /**
+   * 噪声会话判定：身份测试类（"你是谁" / "你是什么模型" / "介绍一下自己" / 冒烟测试）
+   * 且摘要很短（≤ 摘要阈值字，近似单轮短会话）→ 不写笔记不进索引。
+   *
+   * 双重条件避免误杀：标题命中噪声模式 且 摘要长度 ≤ 阈值。
+   * 摘要长的"你是谁"类会话（用户有实质讨论）仍正常归档。
+   */
+  const NOISE_TITLE_PATTERNS: RegExp[] = [
+    /^你是谁$/,
+    /^你是什么(大)?模型$/,
+    /^介绍(一下)?自己$/,
+    /^自我(介绍|认识)?$/,
+    /^echo\s+\S+$/i,
+    /^测试$/,
+  ]
+  const NOISE_SUMMARY_MAX_CHARS = 200
+
+  function isNoiseSession(title: string, summary: string): boolean {
+    const t = String(title || '').trim()
+    const hit = NOISE_TITLE_PATTERNS.some(re => re.test(t))
+    if (!hit) return false
+    return String(summary || '').trim().length <= NOISE_SUMMARY_MAX_CHARS
+  }
+
   /** 确保 shortId 恰好 8 位：不足时补 SHA-1 前缀 hash。 */
   function normalizeShortId(sessionId: string): string {
     let s = sessionId.replace(/[^A-Za-z0-9]/g, '')
@@ -485,6 +509,11 @@ export function apply(ctx: Context, config: Config = {}): void {
       const tags = Array.isArray(args.tags) ? args.tags.map(String).slice(0, 10) : []
       const related = Array.isArray(args.related) ? args.related.map(String).slice(0, 10) : []
       const rawLog = String(args.raw_log ?? '')
+
+      // 噪声会话过滤：身份测试类 + 摘要极短 → 不写笔记不进索引
+      if (isNoiseSession(title, summary)) {
+        return { ok: true, skipped: true, noise: true, reason: 'identity-test noise session filtered out (short title + short summary)', index: 'unchanged' }
+      }
 
       const dateStr = new Date().toISOString().slice(0, 10)
       const shortId = normalizeShortId(sessionId)
