@@ -234,6 +234,78 @@ export function apply(ctx: Context, config: Config = {}): void {
   const widePolicy: SandboxExecutionPolicy = { mode: 'danger-full-access', workspaceRoot: vaultPath }
 
   /**
+   * 每日 22:00 复盘沉淀节律：
+   * - 汇总当天 04-Archive 归档（按日期前缀统计笔记数与主题关键词）
+   * - 把当天要点追加到 02-Projects/ 下匹配项目的"近期演进"段（幂等：当天已追加则跳过）
+   * - git commit + push
+   *
+   * 实现：60s 轮询，发现跨过当天 22:00 且尚未执行过 → 执行一次。
+   */
+  let lastReviewDate = ''
+
+  async function dailyReview(): Promise<void> {
+    const now = new Date()
+    const dateStr = now.toISOString().slice(0, 10)
+    // 只在 22:00 之后（本地时区）且当天未执行时触发
+    const hour = now.getHours()
+    if (hour < 22 || lastReviewDate === dateStr) return
+    lastReviewDate = dateStr
+
+    try {
+      await ensureIndex()
+
+      // 1. 汇总当天归档
+      const todayFiles: Array<{ file: string; date: string; snippet: string }> = []
+      for (const entry of index.values()) {
+        if (!entry.displayPath.includes('04-Archive/')) continue
+        const m = entry.displayPath.match(new RegExp('^.*?(\\d{4}-\\d{2}-\\d{2})'))
+        if (m && m[1] === dateStr) {
+          todayFiles.push({ file: entry.displayPath, date: dateStr, snippet: entry.snippet })
+        }
+      }
+      if (todayFiles.length === 0) return
+
+      // 2. 对每个 02-Projects 页追加当天归档条目（幂等）
+      for (const proj of ['02-Projects/dsh-obsidian-sync.md', '02-Projects/dsh-tool-agnes.md', '02-Projects/dsh-plugin-manager.md', '02-Projects/dsh-conversation-language.md']) {
+        try {
+          const target = await fs.resolve(vaultPath + '/' + proj)
+          let content = String(await fs.readText(target))
+          const marker = '## 近期演进'
+          const markerPos = content.indexOf(marker)
+          if (markerPos === -1) continue
+          // 检查当天是否已追加（幂等）
+          if (content.indexOf(dateStr) !== -1 && content.indexOf(dateStr) > markerPos) continue
+          const todayLines = todayFiles.map(f => '- [[04-Archive/' + f.file.replace(/^04-Archive\//, '') + ']] — ' + f.snippet.slice(0, 80).replace(/\n/g, ' ')).join('\n')
+          content = content.slice(0, content.length) + '\n' + dateStr + ' 归档：\n' + todayLines + '\n'
+          await fs.writeText(target, content, undefined, undefined, widePolicy)
+        } catch (_e) { /* 文件不存在或写入失败，跳过 */ }
+      }
+
+      dirty = true
+
+      // 3. git commit + push
+      try {
+        const { execSync } = await import('node:child_process')
+        const out = execSync('git add -A && git status --porcelain', {
+          cwd: vaultPath, timeout: 15000, encoding: 'utf-8',
+        })
+        if (out.trim().length > 0) {
+          execSync('git commit -m "daily-review: ' + dateStr + ' 归档沉淀（' + todayFiles.length + ' 篇）" && git push', {
+            cwd: vaultPath, timeout: 60000, encoding: 'utf-8',
+          })
+        }
+      } catch (_e) { /* git 失败不影响 */ }
+    } catch (_e) { /* 整体失败静默 */ }
+  }
+
+  ctx.effect(() => {
+    const disposer = timer.interval(() => {
+      void dailyReview()
+    }, 60000)
+    return () => { if (typeof disposer === 'function') disposer() }
+  }, 'obsidian-sync: daily review at 22:00')
+
+  /**
    * 更新索引文件（DSH-会话归档-索引.md）的按日期段。
    * - 找到当天段落（### YYYY-MM-DD）
    * - 边界：下一个 `### ` 或 `## `（两个井号终止条件）
@@ -286,6 +358,46 @@ export function apply(ctx: Context, config: Config = {}): void {
     }
   }
 
+  /** 从索引中按目录前缀过滤 + 按 task 相关性取 top N 提炼页。 */
+  function topDistilled(task: string, limit: number): Array<{ file: string; title: string; score: number; snippet: string }> {
+    const distilledDirs = ['02-Projects/', '03-Areas/', '05-Resources/']
+    const taskTokens = task.trim().length > 0 ? tokenize(task) : new Set<string>()
+    const results: Array<{ file: string; title: string; score: number; snippet: string }> = []
+    for (const entry of index.values()) {
+      if (!distilledDirs.some(d => entry.displayPath.includes(d))) continue
+      let score = 0
+      for (const t of taskTokens) {
+        if (entry.tokens.has(t)) score += idfTable.get(t) ?? 1
+      }
+      const title = entry.displayPath.split('/').pop() ?? entry.displayPath
+      results.push({ file: entry.displayPath, title, score: taskTokens.size > 0 ? Math.round(score * 100) / 100 : 0, snippet: entry.snippet })
+    }
+    results.sort((a, b) => b.score - a.score || a.title.localeCompare(b.title))
+    return results.slice(0, limit)
+  }
+
+  /** 从 04-Archive/ 取最近 N 篇（按文件名日期倒序）。 */
+  function recentArchives(limit: number): Array<{ file: string; date: string; snippet: string }> {
+    const results: Array<{ file: string; date: string; snippet: string }> = []
+    for (const entry of index.values()) {
+      if (!entry.displayPath.includes('04-Archive/')) continue
+      const dateMatch = entry.displayPath.match(/(\d{4}-\d{2}-\d{2})/)
+      results.push({ file: entry.displayPath, date: dateMatch ? dateMatch[1] : 'unknown', snippet: entry.snippet })
+    }
+    results.sort((a, b) => b.date.localeCompare(a.date))
+    return results.slice(0, limit)
+  }
+
+  /** 读取指定相对路径的文件内容。 */
+  async function readFileContent(relPath: string): Promise<string> {
+    try {
+      const target = await fs.resolve(vaultPath + '/' + relPath)
+      return String(await fs.readText(target))
+    } catch (_e) {
+      return ''
+    }
+  }
+
   if (searchEnabled) {
     ctx.tools.register(defineTool({
       name: 'obsidian.search',
@@ -306,6 +418,46 @@ export function apply(ctx: Context, config: Config = {}): void {
         await ensureIndex()
         const matches = searchMatches(topic, limit)
         return { ok: true, matches, count: matches.length, vaultPath }
+      },
+    }))
+
+    ctx.tools.register(defineTool({
+      name: 'obsidian.brief',
+      description: '每日简报：返回与当前任务最相关的提炼页（02-Projects/03-Areas/05-Resources）top 3 + 最近 3 条归档摘要 + 用户决策习惯与偏好页内容。低成本"开机记忆"入口，建议任务开始前调用一次。',
+      parameters: {
+        task: { type: 'string', required: false, description: '当前任务描述（可选），用于相关性排序；省略则返回全部提炼页按名称排序的 top 3' },
+      },
+      output: {
+        schema: { type: 'json' },
+        render: (_args, value) => [{ type: 'text', text: JSON.stringify(value, null, 2) }],
+      },
+      isConcurrencySafe: () => true,
+      async execute(args) {
+        const task = String(args.task ?? '').trim()
+        await ensureIndex()
+
+        // 1. 提炼页 top 3
+        const distilled = topDistilled(task, 3)
+
+        // 2. 最近归档 3 条
+        const recent = recentArchives(3)
+
+        // 3. 用户决策习惯与偏好页（03-Areas 下，如果存在）
+        let userProfile = ''
+        const profileRelPath = '03-Areas/决策习惯与偏好.md'
+        const hasProfile = [...index.values()].some(e => e.displayPath === profileRelPath)
+        if (hasProfile) {
+          userProfile = await readFileContent(profileRelPath)
+        }
+
+        return {
+          ok: true,
+          task: task || '(未指定)',
+          distilled,
+          recent,
+          userProfile: userProfile.length > 0 ? userProfile.slice(0, 2000) : '',
+          vaultPath,
+        }
       },
     }))
   }
