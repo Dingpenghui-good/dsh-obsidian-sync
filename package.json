@@ -1,6 +1,6 @@
 {
   "name": "dsh-obsidian-sync",
-  "version": "2.1.0",
+  "version": "2.1.1",
   "description": "DSH Obsidian Sync - DSH Cordis plugin: on-demand Obsidian knowledge-base search + DSH session archiving following your vault's existing PARA rules (zero token injection, in-process fs, inverted index, idempotent upsert)",
   "type": "module",
   "main": "./lib/index.js",

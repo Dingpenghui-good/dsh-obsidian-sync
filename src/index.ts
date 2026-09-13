@@ -69,9 +69,50 @@ export function apply(ctx: Context, config: Config = {}): void {
 
   const fs = ctx.fs as unknown as FileSystem
   const timer = ctx.timer as unknown as { interval(callback: () => void, delay: number): () => void }
-  const index = new Map<string, { displayPath: string; tokens: Set<string>; snippet: string; size: number }>()
+  const index = new Map<string, { displayPath: string; tokens: Set<string>; snippet: string; size: number; mtimeMs: number }>()
   let dirty = true
   let refreshing = false
+
+  /**
+   * vault 外部修改感知（stat 比对 mtime）：
+   * 快速 stat 每篇已索引文件的 mtime，发现外部变更（用户手动编辑 / 其他工具写入 / git pull）即置 dirty。
+   * 比"仅 dirty 由本插件写入触发"的盲区更鲁棒；stat 代价极小（~60 篇 × ms 级）。
+   */
+  async function detectExternalChanges(): Promise<void> {
+    if (index.size === 0) return
+    for (const entry of index.values()) {
+      try {
+        const target = await fs.resolve(entry.displayPath)
+        const stat = await fs.stat(target)
+        if (stat !== undefined) {
+          const curMs = stat.mtimeMs ?? stat.mtime ?? 0
+          if (curMs !== entry.mtimeMs) {
+            dirty = true
+            return
+          }
+        }
+      } catch (_e) {
+        // 文件被外部删除 → 也视为变更
+        dirty = true
+        return
+      }
+    }
+    // 新文件检测：listDir 顶层 04-Archive / 02-Projects / 03-Areas，出现未知前缀即 dirty
+    for (const sub of ['04-Archive', '02-Projects', '03-Areas', '05-Resources']) {
+      try {
+        const dir = await fs.resolve(vaultPath + '/' + sub)
+        const entries = await fs.listDir(dir)
+        for (const e of entries) {
+          if (e.type !== 'file' || e.name === undefined || !e.name.endsWith('.md')) continue
+          const known = [...index.keys()].some(k => k.endsWith('/' + e.name) || k === sub + '/' + e.name)
+          if (!known) {
+            dirty = true
+            return
+          }
+        }
+      } catch (_e) { /* 目录不存在，跳过 */ }
+    }
+  }
 
   /**
    * 分词：ASCII 重叠三元组 + 中文滑动二元组（bigram）。
@@ -151,7 +192,14 @@ export function apply(ctx: Context, config: Config = {}): void {
               // 索引吃全文（~46 篇 × 几 KB，内存无压力），不再只取前 600 字
               const tokens = tokenize('\n' + entry.name + '\n' + text)
               const displayPath = entry.target && typeof entry.target === 'object' ? entry.target.displayPath : String(entry.target)
-              next.set(displayPath, { displayPath, tokens, snippet: text.slice(0, 240), size: entry.size ?? text.length })
+              const stat = await fs.stat(entry.target)
+              next.set(displayPath, {
+                displayPath,
+                tokens,
+                snippet: text.slice(0, 240),
+                size: entry.size ?? text.length,
+                mtimeMs: stat !== undefined ? (stat.mtimeMs ?? stat.mtime ?? 0) : 0,
+              })
               idfEntries.push({ tokens })
             }
           }
@@ -177,8 +225,14 @@ export function apply(ctx: Context, config: Config = {}): void {
   if (searchEnabled) {
     ctx.effect(() => {
       const disposer = timer.interval(() => {
-        if (!dirty) return
-        void rebuildIndex()
+        if (dirty) {
+          void rebuildIndex()
+          return
+        }
+        // 非 dirty 时做外部修改感知：stat 比对 mtime，发现外部变更才置 dirty 下轮重建
+        void detectExternalChanges().then(() => {
+          if (dirty) void rebuildIndex()
+        })
       }, refreshMs)
       return () => { if (typeof disposer === 'function') disposer() }
     }, 'obsidian-sync: index refresh')
@@ -328,6 +382,79 @@ export function apply(ctx: Context, config: Config = {}): void {
     }, 60000)
     return () => { if (typeof disposer === 'function') disposer() }
   }, 'obsidian-sync: daily review at 22:00')
+
+  /**
+   * 每周复盘沉淀节律（补齐决策习惯页"周复盘尚未建立"的开放问题）：
+   * - 每周日 22:30 触发（本地时区），汇总本 ISO 周（周一~周日）04-Archive 归档
+   * - 写入/更新 03-Areas/周复盘-<ISO 周>.md（主题分布 + 归档清单 + 待收敛项）
+   * - 幂等：同 ISO 周已生成则跳过；git commit + push
+   */
+  let lastWeeklyKey = ''
+
+  function isoWeekKey(d: Date): string {
+    // ISO 周：周四归属所在周；周一为周首
+    const t = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()))
+    const day = t.getUTCDay() || 7
+    t.setUTCDate(t.getUTCDate() + 4 - day)
+    const yearStart = new Date(Date.UTC(t.getUTCFullYear(), 0, 1))
+    const week = Math.ceil((((+t - +yearStart) / 86400000) + 1) / 7)
+    return t.getUTCFullYear() + '-W' + String(week).padStart(2, '0')
+  }
+
+  async function weeklyReview(): Promise<void> {
+    const now = new Date()
+    const dow = now.getDay() // 0=Sun
+    if (dow !== 0 || now.getHours() < 22) return
+    const weekKey = isoWeekKey(now)
+    if (lastWeeklyKey === weekKey) return
+    lastWeeklyKey = weekKey
+
+    try {
+      await ensureIndex()
+      const weekDate = new Date(now)
+      weekDate.setDate(now.getDate() - 6) // 周一
+      const monday = weekDate.toISOString().slice(0, 10)
+
+      // 汇总本周归档（文件名日期 >= 周一 且 <= 今天）
+      const weekFiles: Array<{ file: string; date: string; snippet: string }> = []
+      for (const entry of index.values()) {
+        if (!entry.displayPath.includes('04-Archive/')) continue
+        const m = entry.displayPath.match(/(\d{4}-\d{2}-\d{2})/)
+        if (m && m[1] >= monday && m[1] <= now.toISOString().slice(0, 10)) {
+          weekFiles.push({ file: entry.displayPath, date: m[1], snippet: entry.snippet })
+        }
+      }
+      weekFiles.sort((a, b) => a.date.localeCompare(b.date))
+      if (weekFiles.length === 0) return
+
+      // 主题分布（按 04-Archive 笔记 frontmatter tags 简化：从 snippet 首行提取）
+      const lines = weekFiles.map(f => '- [[04-Archive/' + f.file.replace(/^04-Archive\//, '') + ']]（' + f.date + '）— ' + f.snippet.slice(0, 60).replace(/\n/g, ' ')).join('\n')
+      const note = '---\ndate: ' + now.toISOString().slice(0, 10) + '\nstatus: active\ntags: [area, 周复盘]\n---\n\n# 周复盘 ' + weekKey + '\n\n> 自动汇总 ' + monday + ' ~ ' + now.toISOString().slice(0, 10) + ' 的 04-Archive 归档（' + weekFiles.length + ' 篇）。\n\n## 本周归档\n\n' + lines + '\n\n## 待收敛\n\n- [ ] 人工审阅：识别本周新增的长期 Area / Resource 沉淀点\n\n'
+      const target = await fs.resolve(vaultPath + '/03-Areas/周复盘-' + weekKey + '.md')
+      let skipped = false
+      try {
+        const prev = String(await fs.readText(target))
+        if (prev.includes(weekKey)) skipped = true
+      } catch (_e) { /* 尚不存在 */ }
+      if (!skipped) await fs.writeText(target, note, undefined, undefined, widePolicy)
+
+      dirty = true
+      try {
+        const { execSync } = await import('node:child_process')
+        const out = execSync('git add -A && git status --porcelain', { cwd: vaultPath, timeout: 15000, encoding: 'utf-8' })
+        if (out.trim().length > 0) {
+          execSync('git commit -m "weekly-review: ' + weekKey + ' 归档沉淀（' + weekFiles.length + ' 篇）" && git push', { cwd: vaultPath, timeout: 60000, encoding: 'utf-8' })
+        }
+      } catch (_e) { /* git 失败不影响 */ }
+    } catch (_e) { /* 整体失败静默 */ }
+  }
+
+  ctx.effect(() => {
+    const disposer = timer.interval(() => {
+      void weeklyReview()
+    }, 60000)
+    return () => { if (typeof disposer === 'function') disposer() }
+  }, 'obsidian-sync: weekly review at Sunday 22:30')
 
   /**
    * 更新索引文件（DSH-会话归档-索引.md）的按日期段。
@@ -481,6 +608,63 @@ export function apply(ctx: Context, config: Config = {}): void {
           recent,
           userProfile: userProfile.length > 0 ? userProfile.slice(0, 2000) : '',
           vaultPath,
+        }
+      },
+    }))
+
+    ctx.tools.register(defineTool({
+      name: 'obsidian.read_note',
+      description: '按相对路径读取 Obsidian 笔记的 frontmatter 与正文，补全 obsidian.search 的"搜索→阅读"闭环。路径相对 vault 根（如 02-Projects/dsh-obsidian-sync.md），自动解析 YAML frontmatter（key: value / [list] / 数值 / 布尔）。按需调用，零 token 成本。',
+      parameters: {
+        path: { type: 'string', required: true, description: '笔记相对 vault 的路径（如 02-Projects/dsh-obsidian-sync.md 或 04-Archive/xxx.md）' },
+      },
+      output: {
+        schema: { type: 'json' },
+        render: (_args, value) => [{ type: 'text', text: JSON.stringify(value, null, 2) }],
+      },
+      isConcurrencySafe: () => true,
+      async execute(args) {
+        const rel = String(args.path ?? '').replace(/^\/+/, '').replace(/\\/g, '/').trim()
+        if (rel.length === 0) return { ok: false, error: 'path must not be empty', code: 'EMPTY_PATH' }
+        const content = await readFileContent(rel)
+        if (content.length === 0) return { ok: false, error: 'note not found or unreadable: ' + rel, code: 'NOT_FOUND' }
+
+        // 解析 YAML frontmatter（简单 key: value / key: [a, b] / key: "str"）
+        const frontmatter: Record<string, unknown> = {}
+        let body = content
+        const fmMatch = content.match(/^---\n([\s\S]*?)\n---\n?/)
+        if (fmMatch !== null) {
+          body = content.slice(fmMatch[0].length)
+          for (const line of fmMatch[1].split('\n')) {
+            const kv = line.match(/^([A-Za-z0-9_\-]+):\s*(.*)$/)
+            if (kv === null) continue
+            const key = kv[1]
+            let val = kv[2].trim()
+            if (val.startsWith('[') && val.endsWith(']')) {
+              const inner = val.slice(1, -1).trim()
+              val = inner.length === 0 ? [] : inner.split(',').map(s => s.trim().replace(/^["']|["']$/g, ''))
+            } else if (val === 'null') {
+              val = null
+            } else if (val === 'true') {
+              val = true
+            } else if (val === 'false') {
+              val = false
+            } else if (/^\d+$/.test(val)) {
+              val = Number(val)
+            } else {
+              val = val.replace(/^["']|["']$/g, '')
+            }
+            frontmatter[key] = val
+          }
+        }
+
+        const titleLine = body.match(/^#\s+(.+)$/m)
+        return {
+          ok: true,
+          path: rel,
+          frontmatter,
+          title: titleLine ? titleLine[1].trim() : (rel.split('/').pop() ?? rel),
+          body,
         }
       },
     }))
