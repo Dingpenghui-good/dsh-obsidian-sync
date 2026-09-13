@@ -425,7 +425,7 @@ export function apply(ctx: Context, config: Config = {}): void {
       name: 'obsidian.brief',
       description: '每日简报：返回与当前任务最相关的提炼页（02-Projects/03-Areas/05-Resources）top 3 + 最近 3 条归档摘要 + 用户决策习惯与偏好页内容。低成本"开机记忆"入口，建议任务开始前调用一次。',
       parameters: {
-        task: { type: 'string', required: false, description: '当前任务描述（可选），用于相关性排序；省略则返回全部提炼页按名称排序的 top 3' },
+        task: { type: 'string', description: '当前任务描述（可选），用于相关性排序；省略则返回全部提炼页按名称排序的 top 3' },
       },
       output: {
         schema: { type: 'json' },
