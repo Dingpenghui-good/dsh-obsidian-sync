@@ -1,5 +1,5 @@
 /**
- * DSH Obsidian Sync V2 — 按需搜索 Obsidian 知识库 + 按 vault 既有 PARA 规则归档 DSH 会话。
+ * DSH Obsidian Sync — 按需搜索 Obsidian 知识库 + 按 vault 既有 PARA 规则归档 DSH 会话。
  *
  * 设计理念（零 token / 高性能）：
  *   - 纯模型 Tool 按需调用，不注入系统提示词（默认 token 成本 ≈ 两个 Tool 的 schema）
@@ -9,7 +9,7 @@
  *   - 笔记写入 vault/04-Archive/，自动挂 DSH-会话归档-索引.md 的按日期段
  *   - 落款支持 raw_log 原始日志指针，贴合 vault 既有笔记惯例
  *
- * @module dsh-obsidian-sync-v2
+ * @module dsh-obsidian-sync
  */
 
 import type { Context } from '@deepseek-ai/cordis'
@@ -19,7 +19,7 @@ import type { FileSystem, FsDirEntry, FsTarget } from '@deepseek-ai/dsh-fs'
 import type { SandboxExecutionPolicy } from '@deepseek-ai/dsh-sandbox'
 
 /** Cordis 插件名。 */
-export const name = 'obsidian-sync-v2'
+export const name = 'obsidian-sync'
 
 /** 本插件需要的 Service（`tools`/`fs`/`timer` 为硬依赖，缺失时等待 Cordis 重激活）。 */
 export const inject = ['tools', 'fs', 'timer']
@@ -34,11 +34,17 @@ export interface Config {
   indexRefreshMs?: number
 }
 
-/** Schemastery 配置 schema：加载器用它解析行 `config` 并补默认值。 */
+/**
+ * Schemastery 配置 schema：加载器用它解析行 `config` 并补默认值。
+ *
+ * 注意 Schemastery 的 API 与 zod 不同：没有 `.optional()` / `.int()`。
+ * 对象属性默认即可选（不调用 `.required()` 时，缺失键不会写入解析结果），
+ * 整数约束通过 `.step(1)` 表达。
+ */
 export const Config: z<Config> = z.object({
-  vaultPath: z.string().optional(),
+  vaultPath: z.string(),
   searchEnabled: z.boolean().default(true),
-  indexRefreshMs: z.number().int().min(5000).default(60000),
+  indexRefreshMs: z.number().step(1).min(5000).default(60000),
 })
 
 export function apply(ctx: Context, config: Config = {}): void {
@@ -130,7 +136,7 @@ export function apply(ctx: Context, config: Config = {}): void {
         void rebuildIndex()
       }, refreshMs)
       return () => { if (typeof disposer === 'function') disposer() }
-    }, 'obsidian-sync-v2: index refresh')
+    }, 'obsidian-sync: index refresh')
   }
 
   function searchMatches(topic: string, limit: number): Array<{ file: string; score: number; snippet: string; size: number }> {

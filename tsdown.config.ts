@@ -1,7 +1,7 @@
 import { defineConfig } from 'tsdown'
 
 export default defineConfig({
-  name: 'dsh-obsidian-sync-v2',
+  name: 'dsh-obsidian-sync',
   entry: ['src/index.ts'],
   outDir: 'lib',
   format: ['esm'],

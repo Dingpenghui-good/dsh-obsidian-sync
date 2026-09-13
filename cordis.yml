@@ -1,22 +1,27 @@
-# Cordis bundle patch for dsh-obsidian-sync-v2.
+# Cordis bundle patch for dsh-obsidian-sync.
 #
-# 挂载方式二选一：
+# Static bundle patch: the row id must equal the package name
+# (dsh-obsidian-sync). Loaded automatically via package.json's
+# `dsh.bundle.patch` when the package is mounted as a profile bundle.
 #
-# 1) 作为 profile bundle（package.json `dsh.bundle.patch` 自动加载），
-#    或从 profile 的 cordis.patch.yml 显式插入：
+# Mount options:
+#   1) As a profile bundle (auto-load), or insert explicitly into the
+#      profile's cordis.patch.yml:
 #
-#   - insert:
-#       - id: obsidian-sync-v2
-#         name: 'dsh-obsidian-sync-v2'
-#         config:
-#           vaultPath: 'E:/dsh-workspace/obsidian-vault'
+#     - insert:
+#         - id: obsidian-sync
+#           name: 'dsh-obsidian-sync'
+#           config:
+#             vaultPath: 'E:/dsh-workspace/obsidian-vault'
 #
-# 2) 不改任何 config，全部走内置默认（vaultPath 缺省 E:/dsh-workspace/obsidian-vault）。
+#   2) Leave all config empty and fall back to the built-in defaults
+#      (vaultPath defaults to E:/dsh-workspace/obsidian-vault).
 #
-# 一个 patch 会整体替换目标行 config，所以该行拥有的每个键都要重写。
+# One patch replaces the whole config of the target row, so every key
+# the row owns must be restated.
 
-- id: obsidian-sync-v2
-  name: 'dsh-obsidian-sync-v2'
+- id: dsh-obsidian-sync
+  name: 'dsh-obsidian-sync'
   config:
     vaultPath: 'E:/dsh-workspace/obsidian-vault'
     searchEnabled: true

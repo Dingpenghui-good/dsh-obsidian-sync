@@ -1,6 +1,7 @@
-﻿node_modules/
+node_modules/
 lib/
 *.js.map
 *.d.ts.map
 .env
+.npmrc
 .DS_Store
