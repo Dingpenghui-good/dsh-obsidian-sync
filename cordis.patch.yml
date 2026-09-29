@@ -1,5 +1,5 @@
-# DSH Obsidian Sync 插件配置
-# 安装方式: dsh plugin --profile web add <path-to-plugin>
+# DSH Obsidian Sync plugin configuration
+# Install: dsh plugin --profile web add <path-to-plugin>
 #
 # The row id IS the settings namespace: the settings framework keys every
 # descriptor by the entry's id, and the client addresses the form through
@@ -7,16 +7,17 @@
 # (vaultPath: E:/dsh-workspace/obsidian-vault, searchEnabled: true,
 # indexRefreshMs: 60000) materialize when the row ships no config.
 #
-# 使用前提条件（均可在插件详情页修改，volatile HMR 即时生效）：
-#   vaultPath —— 必须指向已存在的 Obsidian vault 目录（PARA 结构）
-#   searchEnabled —— 是否启用倒排索引搜索（obsidian.search / obsidian.brief）
-#   indexRefreshMs —— 索引增量重建间隔（≥5000ms）
+# Prerequisites (editable on the plugin detail page, volatile HMR live apply):
+#   vaultPath      - absolute path to an existing Obsidian vault (PARA layout)
+#   searchEnabled  - whether to register the inverted-index search tools
+#   indexRefreshMs - index rebuild interval in ms (>= 5000)
 #
 # A bundle patch replaces the WHOLE config of its target row, so every key
 # the row owns must be restated here.
-- id: dsh-obsidian-sync
-  name: 'dsh-obsidian-sync'
-  config:
-    vaultPath: 'E:/dsh-workspace/obsidian-vault'
-    searchEnabled: true
-    indexRefreshMs: 60000
+- insert:
+    - id: dsh-obsidian-sync
+      name: 'dsh-obsidian-sync'
+      config:
+        vaultPath: 'E:/dsh-workspace/obsidian-vault'
+        searchEnabled: true
+        indexRefreshMs: 60000
