@@ -9,6 +9,16 @@
  *   - 笔记写入 vault/04-Archive/，自动挂 DSH-会话归档-索引.md 的按日期段
  *   - 落款支持 raw_log 原始日志指针，贴合 vault 既有笔记惯例
  *
+ * 使用前提（在插件详情页设置，保存后经 volatile HMR 即时生效，无需重启）：
+ *   1. vaultPath —— 必须指向一个已存在的 Obsidian vault 目录（PARA 结构：
+ *      02-Projects / 03-Areas / 04-Archive / 05-Resources 与 DSH-会话归档-索引.md）。
+ *      路径错则搜索与归档全部失败。默认 E:/dsh-workspace/obsidian-vault。
+ *   2. searchEnabled —— 是否注册倒排索引搜索（obsidian.search / obsidian.brief）。
+ *      关闭后仅保留 obsidian.read_note 与 obsidian.sync_session。默认 true。
+ *   3. indexRefreshMs —— 索引增量重建 / vault 外部变更感知间隔（≥5000ms）。默认 60000ms。
+ *   4. git 自动推送（隐含前提，无需设置）：vault 是 git 仓库且配置了 remote 时，
+ *      归档笔记会自动 git commit + push；不满足时笔记仍正常写入，git 步骤在结果中降级提示。
+ *
  * @module dsh-obsidian-sync
  */
 
@@ -31,14 +41,17 @@ export const name = 'obsidian-sync'
 /** 本插件需要的 Service（`tools`/`fs` 为硬依赖，缺失时等待 Cordis 重激活）。 */
 export const inject = ['tools', 'fs']
 
-/** 插件配置。 */
+/** 插件配置。schema 字段标记 `.volatile()`：宿主 settings 框架投影到浏览器
+ *  设置页，详情页保存后经 profile Cordis patch + volatile HMR 即时生效，无需重启。
+ *  接口本身保留普通类型（与已验证的 conversation-language 插件一致），
+ *  volatile 语义由 schema 与 Loader 承担。 */
 export interface Config {
-  /** Obsidian vault 绝对路径；缺省读 settings 命名空间 `dsh-obsidian-sync`，再缺省 `E:/dsh-workspace/obsidian-vault`。 */
-  vaultPath?: string
+  /** Obsidian vault 绝对路径；缺省 `E:/dsh-workspace/obsidian-vault`。 */
+  vaultPath: string
   /** 是否注册 obsidian.search（倒排索引 + 定时增量重建）。 */
-  searchEnabled?: boolean
+  searchEnabled: boolean
   /** 索引增量重建间隔（毫秒，下限 5000）。 */
-  indexRefreshMs?: number
+  indexRefreshMs: number
 }
 
 /**
@@ -48,33 +61,50 @@ export interface Config {
  * 对象属性默认即可选（不调用 `.required()` 时，缺失键不会写入解析结果），
  * 整数约束通过 `.step(1)` 表达。
  */
-export const Config: z<Config> = z.object({
-  vaultPath: z.string(),
-  searchEnabled: z.boolean().default(true),
-  indexRefreshMs: z.number().step(1).min(5000).default(60000),
+/** 运行时 schema：volatile 标记 + 默认值。Loader 据此解析行 config 并补默认。 */
+export const Config = z.object({
+  vaultPath: z.string().volatile().default('E:/dsh-workspace/obsidian-vault'),
+  searchEnabled: z.boolean().default(true).volatile(),
+  indexRefreshMs: z.number().step(1).min(5000).default(60000).volatile(),
 })
 
-export function apply(ctx: Context, config: Config = {}): void {
+export function apply(ctx: Context): void {
   // 0.2.0-rc.1 settings API：describe() 返回按 profile entry id 排序的行，
   // 本插件的 entry id 是 dsh-obsidian-sync（cordis.yml 中的 id）。
+  // 行 value 由 Loader 按本文件导出的 Config schema 解析并补默认值，
+  // volatile HMR 保存后经 settings 框架即时刷新，读到的就是当前生效值。
   const settings = ctx.get('settings') as { describe(): Array<{ ns: string; value?: unknown }> } | undefined
-  let rawVaultPath: string | undefined = config.vaultPath
-  let searchEnabled = config.searchEnabled !== false
-  if (rawVaultPath === undefined && settings !== undefined) {
+
+  /** 读命名空间行 value（Loader 已按 Config schema 补默认值）。 */
+  const readSection = (): Record<string, unknown> | undefined => {
+    if (settings === undefined) return undefined
     try {
       const row = settings.describe().find((r) => r.ns === 'dsh-obsidian-sync')
-      const section = row?.value as Record<string, unknown> | undefined
-      if (section && typeof section === 'object') {
-        if (typeof section.vaultPath === 'string') rawVaultPath = section.vaultPath
-        if (typeof section.searchEnabled === 'boolean') searchEnabled = section.searchEnabled
-      }
-    } catch (_e) { /* 命名空间未注册或 schema 不符；保留默认 */ }
+      return row?.value as Record<string, unknown> | undefined
+    } catch (_e) {
+      return undefined
+    }
   }
+
+  // vault 路径是插件核心前提：缺省 E:/dsh-workspace/obsidian-vault。
   const resolvedVaultPath: string =
-    (rawVaultPath === undefined || rawVaultPath.length === 0)
-      ? 'E:/dsh-workspace/obsidian-vault'
-      : rawVaultPath
-  const refreshMs = Math.max(config.indexRefreshMs ?? 60000, 5000)
+    (typeof readSection()?.vaultPath === 'string' && (readSection() as Record<string, string>).vaultPath.length > 0)
+      ? (readSection() as Record<string, string>).vaultPath
+      : 'E:/dsh-workspace/obsidian-vault'
+  const readSearchEnabled = (): boolean => {
+    const v = readSection()?.searchEnabled
+    return typeof v === 'boolean' ? v : true
+  }
+  const readIndexRefreshMs = (): number => {
+    const v = readSection()?.indexRefreshMs
+    return typeof v === 'number' && v >= 5000 ? v : 60000
+  }
+
+  let searchEnabled = readSearchEnabled()
+  const refreshMs = Math.max(readIndexRefreshMs(), 5000)
+
+  // 详情页保存 searchEnabled 后 volatile HMR 会重新挂载本插件（Loader 重激活），
+  // 因此无需在本实例内监听 settings/document-updated 刷新 —— 保存即重建。
 
   const fs = ctx.fs as unknown as FileSystem
   // 0.2.0-rc.1 不再提供 ctx.timer 服务；改用 Node 原生 setInterval，
