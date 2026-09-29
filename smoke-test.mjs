@@ -1,6 +1,7 @@
 // 冒烟测试：加载构建产物，模拟最小 cordis Context，调用 apply() 验证不抛错、
-// 定时器注册并可被清理。
+// 定时器注册并可被清理；并验证 bundle patch 形态（v3.2.0 修复）。
 import assert from 'node:assert'
+import fs from 'node:fs'
 import { pathToFileURL } from 'node:url'
 import path from 'node:path'
 
@@ -70,6 +71,28 @@ assert.equal(r.count, 0, 'no matches expected')
 for (const c of cleanups) if (typeof c === 'function') c()
 assert.equal(cleanups.length, effects.length, 'all effects registered disposers')
 
+// v3.2.0：bundle patch 形态验证。
+// cordis.patch.yml 必须是合法的 loader patch 文档（顶层条目为 `- id:` 或
+// `- insert:`），且重述行拥有的全部 config key（patch 整体替换行配置）。
+const patch = fs.readFileSync(path.join(root, 'cordis.patch.yml'), 'utf8')
+assert.ok(
+  /^- (?:id|insert):/m.test(patch),
+  'bundle patch must be a loader patch document (top-level - id:/- insert: entries)',
+)
+assert.ok(
+  patch.includes('dsh-obsidian-sync'),
+  'bundle patch must carry the dsh-obsidian-sync row',
+)
+assert.ok(
+  patch.includes('vaultPath') && patch.includes('searchEnabled') && patch.includes('indexRefreshMs'),
+  'bundle patch must restate every key the row owns (vaultPath/searchEnabled/indexRefreshMs)',
+)
+// 宿主半不读 bundle patch 文档，但 dsh.bundle.patch 指向它——
+// 验证 package.json 的指针对齐（旧版误指 cordis.yml 导致 settings 行缺失）。
+const pkg = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8'))
+assert.equal(pkg.dsh?.bundle?.patch, './cordis.patch.yml', 'dsh.bundle.patch must point to cordis.patch.yml')
+
 console.log('PASS: apply + tool registration + search execute + cleanup OK')
 console.log('  registered tools:', registeredTools.map(t => t.name).join(', '))
 console.log('  effects:', effects.join(', '))
+console.log('  bundle patch: loader doc + full config keys, dsh.bundle.patch aligned')

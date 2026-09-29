@@ -1,6 +1,6 @@
 {
   "name": "dsh-obsidian-sync",
-  "version": "3.1.0",
+  "version": "3.2.0",
   "description": "DSH Obsidian Sync - DSH Cordis plugin: on-demand Obsidian knowledge-base search + DSH session archiving following your vault's existing PARA rules (zero token injection, in-process fs, inverted index, idempotent upsert)",
   "type": "module",
   "main": "./lib/index.js",
@@ -19,12 +19,12 @@
   "files": [
     "lib",
     "src",
-    "cordis.yml",
+    "cordis.patch.yml",
     "README.md"
   ],
   "dsh": {
     "bundle": {
-      "patch": "./cordis.yml"
+      "patch": "./cordis.patch.yml"
     },
     "client": {
       "inject": [
