@@ -4,12 +4,18 @@
 # (dsh-obsidian-sync). Loaded automatically via package.json's
 # `dsh.bundle.patch` when the package is mounted as a profile bundle.
 #
+# 0.2.0-rc.1 settings note: the host settings framework keys each entry's
+# form by the profile entry id (this `id`). The plugin's host-side code reads
+# `settings.describe().find(row => row.ns === 'dsh-obsidian-sync')` to apply
+# vaultPath / searchEnabled overrides; the `config` block below is merged into
+# that same entry so the values reach the plugin through its Config schema.
+#
 # Mount options:
 #   1) As a profile bundle (auto-load), or insert explicitly into the
 #      profile's cordis.patch.yml:
 #
 #     - insert:
-#         - id: obsidian-sync
+#         - id: dsh-obsidian-sync
 #           name: 'dsh-obsidian-sync'
 #           config:
 #             vaultPath: 'E:/dsh-workspace/obsidian-vault'

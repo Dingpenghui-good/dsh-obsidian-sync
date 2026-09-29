@@ -1,26 +1,37 @@
-﻿# DSH Obsidian Sync Plugin Configuration
+# DSH Obsidian Sync Plugin Configuration
+#
+# 0.2.0-rc.1：插件通过 `apply(ctx)` 命令式注册工具与定时器，
+# 声明式挂载由 `cordis.yml`（`dsh.bundle.patch`）承担。
+# 本文件仅作说明性索引，列出插件实际对外暴露的 4 个 Tool。
 
 id: dsh-obsidian-sync
 name: DSH Obsidian Sync
-description: 自动同步 DSH 对话到 Obsidian 知识库
+description: 自动同步 DSH 对话到 Obsidian 知识库（按需搜索 + PARA 归档，零系统提示词注入）
 
-# 插件路径
-path: src/
+# 插件入口
+entry: src/index.ts
 
-# 导出函数
+# 导出的插件对象
 exports:
-  - searchKnowledgeBase
-  - syncSession
-  - extractKeywords
-  - generateSummary
-  - extractTags
+  - apply
+  - inject
+  - name
+  - Config
 
-# 注册 Tool（通过 DSH hooks 实现）
+# 注册 Tool（由 apply() 在运行时通过 ctx.tools.register(defineTool(...)) 动态注册）
 tools:
-  - id: obsidian.read_knowledge
-    handler: searchKnowledgeBase
+  - id: obsidian.search
+    description: 在 Obsidian 知识库中按关键词搜索相关笔记（倒排索引 + CJK bigram）
     enabled: true
-    
+
+  - id: obsidian.brief
+    description: 每日简报：最相关提炼页 top3 + 最近归档 + 用户决策偏好
+    enabled: true
+
+  - id: obsidian.read_note
+    description: 按相对路径读取 Obsidian 笔记的 frontmatter 与正文
+    enabled: true
+
   - id: obsidian.sync_session
-    handler: syncSession
+    description: 把当前 DSH 会话幂等归档到 vault/04-Archive/ 并自动挂索引
     enabled: true

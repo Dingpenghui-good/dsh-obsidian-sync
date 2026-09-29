@@ -17,16 +17,23 @@ import z from '@deepseek-ai/schemastery'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import type { FileSystem, FsDirEntry, FsTarget } from '@deepseek-ai/dsh-fs'
 import type { SandboxExecutionPolicy } from '@deepseek-ai/dsh-sandbox'
+import type { JsonValue } from '@deepseek-ai/dsh-util-values'
+
+/** 把工具返回值断言为 JsonValue（0.2.0-rc.1 的 execute 要求返回 InferValue，
+ *  即 output.schema 推断出的 JsonValue；对象 union 的 undefined 分支在此收敛）。 */
+function asJsonValue(v: unknown): JsonValue {
+  return v as JsonValue
+}
 
 /** Cordis 插件名。 */
 export const name = 'obsidian-sync'
 
-/** 本插件需要的 Service（`tools`/`fs`/`timer` 为硬依赖，缺失时等待 Cordis 重激活）。 */
-export const inject = ['tools', 'fs', 'timer']
+/** 本插件需要的 Service（`tools`/`fs` 为硬依赖，缺失时等待 Cordis 重激活）。 */
+export const inject = ['tools', 'fs']
 
 /** 插件配置。 */
 export interface Config {
-  /** Obsidian vault 绝对路径；缺省读 settings 命名空间 `obsidian-sync`，再缺省 `E:/dsh-workspace/obsidian-vault`。 */
+  /** Obsidian vault 绝对路径；缺省读 settings 命名空间 `dsh-obsidian-sync`，再缺省 `E:/dsh-workspace/obsidian-vault`。 */
   vaultPath?: string
   /** 是否注册 obsidian.search（倒排索引 + 定时增量重建）。 */
   searchEnabled?: boolean
@@ -48,35 +55,40 @@ export const Config: z<Config> = z.object({
 })
 
 export function apply(ctx: Context, config: Config = {}): void {
-  const settings = ctx.get('settings')
-  let vaultPath: string | undefined = config.vaultPath
+  // 0.2.0-rc.1 settings API：describe() 返回按 profile entry id 排序的行，
+  // 本插件的 entry id 是 dsh-obsidian-sync（cordis.yml 中的 id）。
+  const settings = ctx.get('settings') as { describe(): Array<{ ns: string; value?: unknown }> } | undefined
+  let rawVaultPath: string | undefined = config.vaultPath
   let searchEnabled = config.searchEnabled !== false
-  if (vaultPath === undefined && settings !== undefined) {
+  if (rawVaultPath === undefined && settings !== undefined) {
     try {
-      const section = settings.get('obsidian-sync')
+      const row = settings.describe().find((r) => r.ns === 'dsh-obsidian-sync')
+      const section = row?.value as Record<string, unknown> | undefined
       if (section && typeof section === 'object') {
-        if (typeof (section as Record<string, unknown>).vaultPath === 'string') {
-          vaultPath = (section as Record<string, unknown>).vaultPath as string
-        }
-        if (typeof (section as Record<string, unknown>).searchEnabled === 'boolean') {
-          searchEnabled = (section as Record<string, unknown>).searchEnabled as boolean
-        }
+        if (typeof section.vaultPath === 'string') rawVaultPath = section.vaultPath
+        if (typeof section.searchEnabled === 'boolean') searchEnabled = section.searchEnabled
       }
     } catch (_e) { /* 命名空间未注册或 schema 不符；保留默认 */ }
   }
-  if (vaultPath === undefined || vaultPath.length === 0) vaultPath = 'E:/dsh-workspace/obsidian-vault'
+  const resolvedVaultPath: string =
+    (rawVaultPath === undefined || rawVaultPath.length === 0)
+      ? 'E:/dsh-workspace/obsidian-vault'
+      : rawVaultPath
   const refreshMs = Math.max(config.indexRefreshMs ?? 60000, 5000)
 
   const fs = ctx.fs as unknown as FileSystem
-  const timer = ctx.timer as unknown as { interval(callback: () => void, delay: number): () => void }
-  const index = new Map<string, { displayPath: string; tokens: Set<string>; snippet: string; size: number; mtimeMs: number }>()
+  // 0.2.0-rc.1 不再提供 ctx.timer 服务；改用 Node 原生 setInterval，
+  // 通过 ctx.effect 的清理函数保证插件卸载时定时器被清除。
+  const index = new Map<string, { displayPath: string; tokens: Set<string>; snippet: string; size: number; version: string }>()
   let dirty = true
   let refreshing = false
 
   /**
-   * vault 外部修改感知（stat 比对 mtime）：
-   * 快速 stat 每篇已索引文件的 mtime，发现外部变更（用户手动编辑 / 其他工具写入 / git pull）即置 dirty。
-   * 比"仅 dirty 由本插件写入触发"的盲区更鲁棒；stat 代价极小（~60 篇 × ms 级）。
+   * vault 外部修改感知（stat 比对 version token）：
+   * 快速 stat 每篇已索引文件的 version（不透明新鲜度令牌），发现外部变更
+   * （用户手动编辑 / 其他工具写入 / git pull）即置 dirty。
+   * 0.2.0-rc.1 的 FsInfo 不再暴露 mtimeMs，改以 opaque version token 比对；
+   * 同内容文件的 version 相同，任何写入/删除都会改变它。stat 代价极小（~60 篇 × ms 级）。
    */
   async function detectExternalChanges(): Promise<void> {
     if (index.size === 0) return
@@ -85,11 +97,14 @@ export function apply(ctx: Context, config: Config = {}): void {
         const target = await fs.resolve(entry.displayPath)
         const stat = await fs.stat(target)
         if (stat !== undefined) {
-          const curMs = stat.mtimeMs ?? stat.mtime ?? 0
-          if (curMs !== entry.mtimeMs) {
+          if (String(stat.version) !== String(entry.version)) {
             dirty = true
             return
           }
+        } else {
+          // 目标已不存在 → 视为变更
+          dirty = true
+          return
         }
       } catch (_e) {
         // 文件被外部删除 → 也视为变更
@@ -100,7 +115,7 @@ export function apply(ctx: Context, config: Config = {}): void {
     // 新文件检测：listDir 顶层 04-Archive / 02-Projects / 03-Areas，出现未知前缀即 dirty
     for (const sub of ['04-Archive', '02-Projects', '03-Areas', '05-Resources']) {
       try {
-        const dir = await fs.resolve(vaultPath + '/' + sub)
+        const dir = await fs.resolve(resolvedVaultPath + '/' + sub)
         const entries = await fs.listDir(dir)
         for (const e of entries) {
           if (e.type !== 'file' || e.name === undefined || !e.name.endsWith('.md')) continue
@@ -171,7 +186,7 @@ export function apply(ctx: Context, config: Config = {}): void {
       const next = new Map(index)
       const idfEntries: Array<{ tokens: Set<string> }> = []
       try {
-        const root = await fs.resolve(vaultPath)
+        const root = await fs.resolve(resolvedVaultPath)
         const statRoot = await fs.stat(root)
         if (statRoot !== undefined && statRoot.type === 'directory') {
           const queue: FsTarget[] = [root]
@@ -191,14 +206,14 @@ export function apply(ctx: Context, config: Config = {}): void {
               try { text = await fs.readText(entry.target) } catch (_e) { continue }
               // 索引吃全文（~46 篇 × 几 KB，内存无压力），不再只取前 600 字
               const tokens = tokenize('\n' + entry.name + '\n' + text)
-              const displayPath = entry.target && typeof entry.target === 'object' ? entry.target.displayPath : String(entry.target)
+              const displayPath = entry.target && typeof entry.target === 'object' ? entry.target.displayPath : String(entry.target ?? '')
               const stat = await fs.stat(entry.target)
               next.set(displayPath, {
                 displayPath,
                 tokens,
                 snippet: text.slice(0, 240),
                 size: entry.size ?? text.length,
-                mtimeMs: stat !== undefined ? (stat.mtimeMs ?? stat.mtime ?? 0) : 0,
+                version: stat !== undefined ? String(stat.version) : '',
               })
               idfEntries.push({ tokens })
             }
@@ -224,17 +239,17 @@ export function apply(ctx: Context, config: Config = {}): void {
 
   if (searchEnabled) {
     ctx.effect(() => {
-      const disposer = timer.interval(() => {
+      const handle = setInterval(() => {
         if (dirty) {
           void rebuildIndex()
           return
         }
-        // 非 dirty 时做外部修改感知：stat 比对 mtime，发现外部变更才置 dirty 下轮重建
+        // 非 dirty 时做外部修改感知：stat 比对 version token，发现外部变更才置 dirty 下轮重建
         void detectExternalChanges().then(() => {
           if (dirty) void rebuildIndex()
         })
       }, refreshMs)
-      return () => { if (typeof disposer === 'function') disposer() }
+      return () => { clearInterval(handle) }
     }, 'obsidian-sync: index refresh')
   }
 
@@ -309,7 +324,7 @@ export function apply(ctx: Context, config: Config = {}): void {
   }
 
   /** vault 在 workspace 之外，写入需按调用抬升到 danger-full-access。 */
-  const widePolicy: SandboxExecutionPolicy = { mode: 'danger-full-access', workspaceRoot: vaultPath }
+  const widePolicy: SandboxExecutionPolicy = { mode: 'danger-full-access', workspaceRoot: resolvedVaultPath }
 
   /**
    * 每日 22:00 复盘沉淀节律：
@@ -346,7 +361,7 @@ export function apply(ctx: Context, config: Config = {}): void {
       // 2. 对每个 02-Projects 页追加当天归档条目（幂等）
       for (const proj of ['02-Projects/dsh-obsidian-sync.md', '02-Projects/dsh-tool-agnes.md', '02-Projects/dsh-plugin-manager.md', '02-Projects/dsh-conversation-language.md']) {
         try {
-          const target = await fs.resolve(vaultPath + '/' + proj)
+          const target = await fs.resolve(resolvedVaultPath + '/' + proj)
           let content = String(await fs.readText(target))
           const marker = '## 近期演进'
           const markerPos = content.indexOf(marker)
@@ -365,11 +380,11 @@ export function apply(ctx: Context, config: Config = {}): void {
       try {
         const { execSync } = await import('node:child_process')
         const out = execSync('git add -A && git status --porcelain', {
-          cwd: vaultPath, timeout: 15000, encoding: 'utf-8',
+          cwd: resolvedVaultPath, timeout: 15000, encoding: 'utf-8',
         })
         if (out.trim().length > 0) {
           execSync('git commit -m "daily-review: ' + dateStr + ' 归档沉淀（' + todayFiles.length + ' 篇）" && git push', {
-            cwd: vaultPath, timeout: 60000, encoding: 'utf-8',
+            cwd: resolvedVaultPath, timeout: 60000, encoding: 'utf-8',
           })
         }
       } catch (_e) { /* git 失败不影响 */ }
@@ -377,10 +392,10 @@ export function apply(ctx: Context, config: Config = {}): void {
   }
 
   ctx.effect(() => {
-    const disposer = timer.interval(() => {
+    const handle = setInterval(() => {
       void dailyReview()
     }, 60000)
-    return () => { if (typeof disposer === 'function') disposer() }
+    return () => { clearInterval(handle) }
   }, 'obsidian-sync: daily review at 22:00')
 
   /**
@@ -430,7 +445,7 @@ export function apply(ctx: Context, config: Config = {}): void {
       // 主题分布（按 04-Archive 笔记 frontmatter tags 简化：从 snippet 首行提取）
       const lines = weekFiles.map(f => '- [[04-Archive/' + f.file.replace(/^04-Archive\//, '') + ']]（' + f.date + '）— ' + f.snippet.slice(0, 60).replace(/\n/g, ' ')).join('\n')
       const note = '---\ndate: ' + now.toISOString().slice(0, 10) + '\nstatus: active\ntags: [area, 周复盘]\n---\n\n# 周复盘 ' + weekKey + '\n\n> 自动汇总 ' + monday + ' ~ ' + now.toISOString().slice(0, 10) + ' 的 04-Archive 归档（' + weekFiles.length + ' 篇）。\n\n## 本周归档\n\n' + lines + '\n\n## 待收敛\n\n- [ ] 人工审阅：识别本周新增的长期 Area / Resource 沉淀点\n\n'
-      const target = await fs.resolve(vaultPath + '/03-Areas/周复盘-' + weekKey + '.md')
+      const target = await fs.resolve(resolvedVaultPath + '/03-Areas/周复盘-' + weekKey + '.md')
       let skipped = false
       try {
         const prev = String(await fs.readText(target))
@@ -441,19 +456,19 @@ export function apply(ctx: Context, config: Config = {}): void {
       dirty = true
       try {
         const { execSync } = await import('node:child_process')
-        const out = execSync('git add -A && git status --porcelain', { cwd: vaultPath, timeout: 15000, encoding: 'utf-8' })
+        const out = execSync('git add -A && git status --porcelain', { cwd: resolvedVaultPath, timeout: 15000, encoding: 'utf-8' })
         if (out.trim().length > 0) {
-          execSync('git commit -m "weekly-review: ' + weekKey + ' 归档沉淀（' + weekFiles.length + ' 篇）" && git push', { cwd: vaultPath, timeout: 60000, encoding: 'utf-8' })
+          execSync('git commit -m "weekly-review: ' + weekKey + ' 归档沉淀（' + weekFiles.length + ' 篇）" && git push', { cwd: resolvedVaultPath, timeout: 60000, encoding: 'utf-8' })
         }
       } catch (_e) { /* git 失败不影响 */ }
     } catch (_e) { /* 整体失败静默 */ }
   }
 
   ctx.effect(() => {
-    const disposer = timer.interval(() => {
+    const handle = setInterval(() => {
       void weeklyReview()
     }, 60000)
-    return () => { if (typeof disposer === 'function') disposer() }
+    return () => { clearInterval(handle) }
   }, 'obsidian-sync: weekly review at Sunday 22:30')
 
   /**
@@ -465,7 +480,7 @@ export function apply(ctx: Context, config: Config = {}): void {
    */
   async function updateIndexFile(entryRelPath: string, title: string, sessionId: string, dateStr: string): Promise<boolean> {
     try {
-      const idxTarget = await fs.resolve(vaultPath + '/DSH-会话归档-索引.md')
+      const idxTarget = await fs.resolve(resolvedVaultPath + '/DSH-会话归档-索引.md')
       const idxContent = String(await fs.readText(idxTarget))
       const dayAnchor = '### ' + dateStr
       const line = '\n- [[' + entryRelPath + '|' + title + ']] (' + dateStr + ', ' + sessionId + ')\n'
@@ -542,7 +557,7 @@ export function apply(ctx: Context, config: Config = {}): void {
   /** 读取指定相对路径的文件内容。 */
   async function readFileContent(relPath: string): Promise<string> {
     try {
-      const target = await fs.resolve(vaultPath + '/' + relPath)
+      const target = await fs.resolve(resolvedVaultPath + '/' + relPath)
       return String(await fs.readText(target))
     } catch (_e) {
       return ''
@@ -564,11 +579,11 @@ export function apply(ctx: Context, config: Config = {}): void {
       isConcurrencySafe: () => true,
       async execute(args) {
         const topic = String(args.topic ?? '')
-        if (topic.trim().length === 0) return { ok: false, error: 'topic must not be empty' }
+        if (topic.trim().length === 0) return asJsonValue({ ok: false, error: 'topic must not be empty' })
         const limit = Math.min(Math.max(1, Number(args.limit) || 3), 5)
         await ensureIndex()
         const matches = searchMatches(topic, limit)
-        return { ok: true, matches, count: matches.length, vaultPath }
+        return asJsonValue({ ok: true, matches, count: matches.length, vaultPath: resolvedVaultPath })
       },
     }))
 
@@ -601,14 +616,14 @@ export function apply(ctx: Context, config: Config = {}): void {
           userProfile = await readFileContent(profileRelPath)
         }
 
-        return {
+        return asJsonValue({
           ok: true,
           task: task || '(未指定)',
           distilled,
           recent,
           userProfile: userProfile.length > 0 ? userProfile.slice(0, 2000) : '',
-          vaultPath,
-        }
+          vaultPath: resolvedVaultPath,
+        })
       },
     }))
 
@@ -625,9 +640,9 @@ export function apply(ctx: Context, config: Config = {}): void {
       isConcurrencySafe: () => true,
       async execute(args) {
         const rel = String(args.path ?? '').replace(/^\/+/, '').replace(/\\/g, '/').trim()
-        if (rel.length === 0) return { ok: false, error: 'path must not be empty', code: 'EMPTY_PATH' }
+        if (rel.length === 0) return asJsonValue({ ok: false, error: 'path must not be empty', code: 'EMPTY_PATH' })
         const content = await readFileContent(rel)
-        if (content.length === 0) return { ok: false, error: 'note not found or unreadable: ' + rel, code: 'NOT_FOUND' }
+        if (content.length === 0) return asJsonValue({ ok: false, error: 'note not found or unreadable: ' + rel, code: 'NOT_FOUND' })
 
         // 解析 YAML frontmatter（简单 key: value / key: [a, b] / key: "str"）
         const frontmatter: Record<string, unknown> = {}
@@ -639,33 +654,34 @@ export function apply(ctx: Context, config: Config = {}): void {
             const kv = line.match(/^([A-Za-z0-9_\-]+):\s*(.*)$/)
             if (kv === null) continue
             const key = kv[1]
-            let val = kv[2].trim()
-            if (val.startsWith('[') && val.endsWith(']')) {
-              const inner = val.slice(1, -1).trim()
-              val = inner.length === 0 ? [] : inner.split(',').map(s => s.trim().replace(/^["']|["']$/g, ''))
-            } else if (val === 'null') {
+            let raw = kv[2].trim()
+            let val: unknown
+            if (raw.startsWith('[') && raw.endsWith(']')) {
+              const inner = raw.slice(1, -1).trim()
+              val = inner.length === 0 ? [] : inner.split(',').map((s: string) => s.trim().replace(/^["']|["']$/g, ''))
+            } else if (raw === 'null') {
               val = null
-            } else if (val === 'true') {
+            } else if (raw === 'true') {
               val = true
-            } else if (val === 'false') {
+            } else if (raw === 'false') {
               val = false
-            } else if (/^\d+$/.test(val)) {
-              val = Number(val)
+            } else if (/^\d+$/.test(raw)) {
+              val = Number(raw)
             } else {
-              val = val.replace(/^["']|["']$/g, '')
+              val = raw.replace(/^["']|["']$/g, '')
             }
             frontmatter[key] = val
           }
         }
 
         const titleLine = body.match(/^#\s+(.+)$/m)
-        return {
+        return asJsonValue({
           ok: true,
           path: rel,
           frontmatter,
           title: titleLine ? titleLine[1].trim() : (rel.split('/').pop() ?? rel),
           body,
-        }
+        })
       },
     }))
   }
@@ -696,7 +712,7 @@ export function apply(ctx: Context, config: Config = {}): void {
 
       // 噪声会话过滤：身份测试类 + 摘要极短 → 不写笔记不进索引
       if (isNoiseSession(title, summary)) {
-        return { ok: true, skipped: true, noise: true, reason: 'identity-test noise session filtered out (short title + short summary)', index: 'unchanged' }
+        return asJsonValue({ ok: true, skipped: true, noise: true, reason: 'identity-test noise session filtered out (short title + short summary)', index: 'unchanged' })
       }
 
       const dateStr = new Date().toISOString().slice(0, 10)
@@ -708,7 +724,7 @@ export function apply(ctx: Context, config: Config = {}): void {
 
       // 探测 04-Archive/ 下是否已有同前缀文件（同会话多次同步）
       try {
-        const archiveDir = await fs.resolve(vaultPath + '/04-Archive')
+        const archiveDir = await fs.resolve(resolvedVaultPath + '/04-Archive')
         const archiveEntries = await fs.listDir(archiveDir)
         const existing = archiveEntries.find(e => e.type === 'file' && e.name?.startsWith(entryPrefix))
         if (existing !== undefined && existing.name !== undefined) {
@@ -728,7 +744,7 @@ export function apply(ctx: Context, config: Config = {}): void {
         const rRel = '04-Archive/' + rFull
         // 校验目标存在（全路径双链）
         try {
-          await fs.stat(await fs.resolve(vaultPath + '/' + rRel))
+          await fs.stat(await fs.resolve(resolvedVaultPath + '/' + rRel))
           relatedLines.push('- [[' + rRel + '|' + rFull.replace(/^.*\//, '').replace(/\.md$/, '') + ']]')
         } catch (_e) {
           relatedLines.push('- ' + rFull + '（未找到，降级为文字引用）')
@@ -768,10 +784,10 @@ export function apply(ctx: Context, config: Config = {}): void {
 
       let target: FsTarget
       try {
-        target = await fs.resolve(vaultPath + '/' + entryRelPath)
+        target = await fs.resolve(resolvedVaultPath + '/' + entryRelPath)
       } catch (_e) {
-        const winPath = vaultPath + '\\' + entryRelPath.split('/').join('\\')
-        try { target = await fs.resolve(winPath) } catch (_e2) { return { ok: false, error: 'cannot resolve vault entry path', code: 'RESOLVE_FAILED' } }
+        const winPath = resolvedVaultPath + '\\' + entryRelPath.split('/').join('\\')
+        try { target = await fs.resolve(winPath) } catch (_e2) { return asJsonValue({ ok: false, error: 'cannot resolve vault entry path', code: 'RESOLVE_FAILED' }) }
       }
 
       let skipped = false
@@ -781,12 +797,12 @@ export function apply(ctx: Context, config: Config = {}): void {
         const pos = prev.indexOf(marker)
         if (pos >= 0 && prev.slice(pos + marker.length).trim() === summary.trim()) skipped = true
       } catch (_e) { /* 尚不存在 */ }
-      if (skipped) return { ok: true, skipped: true, file: entryRelPath, reason: 'summary unchanged', index: 'unchanged' }
+      if (skipped) return asJsonValue({ ok: true, skipped: true, file: entryRelPath, reason: 'summary unchanged', index: 'unchanged' })
 
       try {
         await fs.writeText(target, content, undefined, undefined, widePolicy)
       } catch (writeErr) {
-        return { ok: false, error: 'writeText failed: ' + String(writeErr instanceof Error ? writeErr.message : writeErr), code: 'WRITE_FAILED' }
+        return asJsonValue({ ok: false, error: 'writeText failed: ' + String(writeErr instanceof Error ? writeErr.message : writeErr), code: 'WRITE_FAILED' })
       }
 
       const indexOk = await updateIndexFile(entryRelPath, title, sessionId, dateStr)
@@ -797,14 +813,14 @@ export function apply(ctx: Context, config: Config = {}): void {
       try {
         const { execSync } = await import('node:child_process')
         const out = execSync('git add -A && git status --porcelain', {
-          cwd: vaultPath,
+          cwd: resolvedVaultPath,
           timeout: 15000,
           encoding: 'utf-8',
         })
         if (out.trim().length > 0) {
           const msg = 'archive: ' + entryRelPath.replace(/^04-Archive\//, '')
           execSync('git commit -m "' + msg.replace(/"/g, '\\"') + '" && git push', {
-            cwd: vaultPath,
+            cwd: resolvedVaultPath,
             timeout: 60000,
             encoding: 'utf-8',
           })
@@ -816,7 +832,7 @@ export function apply(ctx: Context, config: Config = {}): void {
         gitStatus = 'failed: ' + String(gitErr instanceof Error ? gitErr.message : gitErr)
       }
 
-      return { ok: true, skipped: false, file: entryRelPath, index: indexOk ? 'updated' : 'skipped', git: gitStatus }
+      return asJsonValue({ ok: true, skipped: false, file: entryRelPath, index: indexOk ? 'updated' : 'skipped', git: gitStatus })
     },
   }))
 }
