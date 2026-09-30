@@ -15,6 +15,7 @@
     "declaration": true,
     "declarationMap": true,
     "sourceMap": true,
+    "noEmit": true,
     "outDir": "./lib",
     "rootDir": "./src"
   },

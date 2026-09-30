@@ -44,12 +44,13 @@ function unavailableForm(): ConfigForm<ObsidianSyncSettings> {
     user: undefined,
     writable: false,
     revision: 0,
+    mode: 'host' as const,
   })
   return {
     getSnapshot: snapshot,
     subscribe: (listener) => {
       // 只读占位永不提交；返回一个真实的空 disposer（与真实订阅同形）。
-      listener(snapshot())
+      listener()
       return () => {}
     },
     set: () => Promise.resolve(false),
@@ -83,7 +84,9 @@ export function apply(ctx: ClientContext): void {
   }, 'obsidian-sync: detail form subscriptions')
 
   ctx.effect(() => {
-    if (configForms === undefined) return undefined
+    // configForms 缺失（宿主未提供 settings 传输）时不注册详情页 slot，
+    // 但仍返回一个空 cleanup，保持 effect 回调返回类型一致（Disposable）。
+    if (configForms === undefined) return () => {}
     // Bundle 详情页（点击插件名字打开的画面）：描述与行之间的配置区块。
     const bundleDisposer = slots.inject('plugins.bundle.config', () => slots.register({
       name: 'plugins.bundle.config',

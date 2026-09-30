@@ -97,10 +97,18 @@ export function apply(ctx: Context): void {
   }
 
   // vault 路径是插件核心前提：缺省 E:/dsh-workspace/obsidian-vault。
-  const resolvedVaultPath: string =
-    (typeof readSection()?.vaultPath === 'string' && (readSection() as Record<string, string>).vaultPath.length > 0)
-      ? (readSection() as Record<string, string>).vaultPath
-      : 'E:/dsh-workspace/obsidian-vault'
+  //
+  // 0.2.0-rc.2 保存行为：宿主把行 value 写回 cordis.patch.yml 并更新 settings
+  // 镜像，但不会自动重激活本插件 fiber（volatile HMR 只在整应用重启或手动
+  // 卸载/重载时发生）。因此这里不能像旧实现那样在 apply() 时把路径求值成
+  // const 冻结 —— 保存新路径后运行中的实例仍读旧值。改为惰性读取：
+  // currentVaultPath() 每次构建/感知索引时重读 settings，保存即对后续
+  // 索引周期生效（无需重启）。
+  const DEFAULT_VAULT_PATH = 'E:/dsh-workspace/obsidian-vault'
+  const currentVaultPath = (): string => {
+    const v = readSection()?.vaultPath
+    return typeof v === 'string' && v.length > 0 ? v : DEFAULT_VAULT_PATH
+  }
   const readSearchEnabled = (): boolean => {
     const v = readSection()?.searchEnabled
     return typeof v === 'boolean' ? v : true
@@ -113,15 +121,24 @@ export function apply(ctx: Context): void {
   let searchEnabled = readSearchEnabled()
   const refreshMs = Math.max(readIndexRefreshMs(), 5000)
 
-  // 详情页保存 searchEnabled 后 volatile HMR 会重新挂载本插件（Loader 重激活），
-  // 因此无需在本实例内监听 settings/document-updated 刷新 —— 保存即重建。
-
   const fs = ctx.fs as unknown as FileSystem
   // 0.2.0-rc.1 不再提供 ctx.timer 服务；改用 Node 原生 setInterval，
   // 通过 ctx.effect 的清理函数保证插件卸载时定时器被清除。
   const index = new Map<string, { displayPath: string; tokens: Set<string>; snippet: string; size: number; version: string }>()
   let dirty = true
   let refreshing = false
+
+  // vault 路径变更感知：保存新路径后宿主不会重激活本实例，靠这里的
+  // 变更检测把 dirty 置位 —— 下一次定时器 tick / 工具调用（ensureIndex）
+  // 即按新路径全量重建，无需重启。
+  let observedVaultPath = currentVaultPath()
+  function markDirtyOnVaultChange(): void {
+    const p = currentVaultPath()
+    if (p !== observedVaultPath) {
+      observedVaultPath = p
+      dirty = true
+    }
+  }
 
   /**
    * vault 外部修改感知（stat 比对 version token）：
@@ -155,7 +172,7 @@ export function apply(ctx: Context): void {
     // 新文件检测：listDir 顶层 04-Archive / 02-Projects / 03-Areas，出现未知前缀即 dirty
     for (const sub of ['04-Archive', '02-Projects', '03-Areas', '05-Resources']) {
       try {
-        const dir = await fs.resolve(resolvedVaultPath + '/' + sub)
+        const dir = await fs.resolve(currentVaultPath() + '/' + sub)
         const entries = await fs.listDir(dir)
         for (const e of entries) {
           if (e.type !== 'file' || e.name === undefined || !e.name.endsWith('.md')) continue
@@ -226,7 +243,7 @@ export function apply(ctx: Context): void {
       const next = new Map(index)
       const idfEntries: Array<{ tokens: Set<string> }> = []
       try {
-        const root = await fs.resolve(resolvedVaultPath)
+        const root = await fs.resolve(currentVaultPath())
         const statRoot = await fs.stat(root)
         if (statRoot !== undefined && statRoot.type === 'directory') {
           const queue: FsTarget[] = [root]
@@ -273,6 +290,7 @@ export function apply(ctx: Context): void {
   let idfTable = new Map<string, number>()
 
   async function ensureIndex(): Promise<void> {
+    markDirtyOnVaultChange()
     if (dirty) await rebuildIndex()
     else while (refreshing) await new Promise(resolve => setTimeout(resolve, 20))
   }
@@ -280,6 +298,7 @@ export function apply(ctx: Context): void {
   if (searchEnabled) {
     ctx.effect(() => {
       const handle = setInterval(() => {
+        markDirtyOnVaultChange()
         if (dirty) {
           void rebuildIndex()
           return
@@ -364,7 +383,7 @@ export function apply(ctx: Context): void {
   }
 
   /** vault 在 workspace 之外，写入需按调用抬升到 danger-full-access。 */
-  const widePolicy: SandboxExecutionPolicy = { mode: 'danger-full-access', workspaceRoot: resolvedVaultPath }
+  const widePolicy: SandboxExecutionPolicy = { mode: 'danger-full-access', workspaceRoot: currentVaultPath() }
 
   /**
    * 每日 22:00 复盘沉淀节律：
@@ -401,7 +420,7 @@ export function apply(ctx: Context): void {
       // 2. 对每个 02-Projects 页追加当天归档条目（幂等）
       for (const proj of ['02-Projects/dsh-obsidian-sync.md', '02-Projects/dsh-tool-agnes.md', '02-Projects/dsh-plugin-manager.md', '02-Projects/dsh-conversation-language.md']) {
         try {
-          const target = await fs.resolve(resolvedVaultPath + '/' + proj)
+          const target = await fs.resolve(currentVaultPath() + '/' + proj)
           let content = String(await fs.readText(target))
           const marker = '## 近期演进'
           const markerPos = content.indexOf(marker)
@@ -420,11 +439,11 @@ export function apply(ctx: Context): void {
       try {
         const { execSync } = await import('node:child_process')
         const out = execSync('git add -A && git status --porcelain', {
-          cwd: resolvedVaultPath, timeout: 15000, encoding: 'utf-8',
+          cwd: currentVaultPath(), timeout: 15000, encoding: 'utf-8',
         })
         if (out.trim().length > 0) {
           execSync('git commit -m "daily-review: ' + dateStr + ' 归档沉淀（' + todayFiles.length + ' 篇）" && git push', {
-            cwd: resolvedVaultPath, timeout: 60000, encoding: 'utf-8',
+            cwd: currentVaultPath(), timeout: 60000, encoding: 'utf-8',
           })
         }
       } catch (_e) { /* git 失败不影响 */ }
@@ -485,7 +504,7 @@ export function apply(ctx: Context): void {
       // 主题分布（按 04-Archive 笔记 frontmatter tags 简化：从 snippet 首行提取）
       const lines = weekFiles.map(f => '- [[04-Archive/' + f.file.replace(/^04-Archive\//, '') + ']]（' + f.date + '）— ' + f.snippet.slice(0, 60).replace(/\n/g, ' ')).join('\n')
       const note = '---\ndate: ' + now.toISOString().slice(0, 10) + '\nstatus: active\ntags: [area, 周复盘]\n---\n\n# 周复盘 ' + weekKey + '\n\n> 自动汇总 ' + monday + ' ~ ' + now.toISOString().slice(0, 10) + ' 的 04-Archive 归档（' + weekFiles.length + ' 篇）。\n\n## 本周归档\n\n' + lines + '\n\n## 待收敛\n\n- [ ] 人工审阅：识别本周新增的长期 Area / Resource 沉淀点\n\n'
-      const target = await fs.resolve(resolvedVaultPath + '/03-Areas/周复盘-' + weekKey + '.md')
+      const target = await fs.resolve(currentVaultPath() + '/03-Areas/周复盘-' + weekKey + '.md')
       let skipped = false
       try {
         const prev = String(await fs.readText(target))
@@ -496,9 +515,9 @@ export function apply(ctx: Context): void {
       dirty = true
       try {
         const { execSync } = await import('node:child_process')
-        const out = execSync('git add -A && git status --porcelain', { cwd: resolvedVaultPath, timeout: 15000, encoding: 'utf-8' })
+        const out = execSync('git add -A && git status --porcelain', { cwd: currentVaultPath(), timeout: 15000, encoding: 'utf-8' })
         if (out.trim().length > 0) {
-          execSync('git commit -m "weekly-review: ' + weekKey + ' 归档沉淀（' + weekFiles.length + ' 篇）" && git push', { cwd: resolvedVaultPath, timeout: 60000, encoding: 'utf-8' })
+          execSync('git commit -m "weekly-review: ' + weekKey + ' 归档沉淀（' + weekFiles.length + ' 篇）" && git push', { cwd: currentVaultPath(), timeout: 60000, encoding: 'utf-8' })
         }
       } catch (_e) { /* git 失败不影响 */ }
     } catch (_e) { /* 整体失败静默 */ }
@@ -520,7 +539,7 @@ export function apply(ctx: Context): void {
    */
   async function updateIndexFile(entryRelPath: string, title: string, sessionId: string, dateStr: string): Promise<boolean> {
     try {
-      const idxTarget = await fs.resolve(resolvedVaultPath + '/DSH-会话归档-索引.md')
+      const idxTarget = await fs.resolve(currentVaultPath() + '/DSH-会话归档-索引.md')
       const idxContent = String(await fs.readText(idxTarget))
       const dayAnchor = '### ' + dateStr
       const line = '\n- [[' + entryRelPath + '|' + title + ']] (' + dateStr + ', ' + sessionId + ')\n'
@@ -597,7 +616,7 @@ export function apply(ctx: Context): void {
   /** 读取指定相对路径的文件内容。 */
   async function readFileContent(relPath: string): Promise<string> {
     try {
-      const target = await fs.resolve(resolvedVaultPath + '/' + relPath)
+      const target = await fs.resolve(currentVaultPath() + '/' + relPath)
       return String(await fs.readText(target))
     } catch (_e) {
       return ''
@@ -623,7 +642,7 @@ export function apply(ctx: Context): void {
         const limit = Math.min(Math.max(1, Number(args.limit) || 3), 5)
         await ensureIndex()
         const matches = searchMatches(topic, limit)
-        return asJsonValue({ ok: true, matches, count: matches.length, vaultPath: resolvedVaultPath })
+        return asJsonValue({ ok: true, matches, count: matches.length, vaultPath: currentVaultPath() })
       },
     }))
 
@@ -662,7 +681,7 @@ export function apply(ctx: Context): void {
           distilled,
           recent,
           userProfile: userProfile.length > 0 ? userProfile.slice(0, 2000) : '',
-          vaultPath: resolvedVaultPath,
+          vaultPath: currentVaultPath(),
         })
       },
     }))
@@ -764,7 +783,7 @@ export function apply(ctx: Context): void {
 
       // 探测 04-Archive/ 下是否已有同前缀文件（同会话多次同步）
       try {
-        const archiveDir = await fs.resolve(resolvedVaultPath + '/04-Archive')
+        const archiveDir = await fs.resolve(currentVaultPath() + '/04-Archive')
         const archiveEntries = await fs.listDir(archiveDir)
         const existing = archiveEntries.find(e => e.type === 'file' && e.name?.startsWith(entryPrefix))
         if (existing !== undefined && existing.name !== undefined) {
@@ -784,7 +803,7 @@ export function apply(ctx: Context): void {
         const rRel = '04-Archive/' + rFull
         // 校验目标存在（全路径双链）
         try {
-          await fs.stat(await fs.resolve(resolvedVaultPath + '/' + rRel))
+          await fs.stat(await fs.resolve(currentVaultPath() + '/' + rRel))
           relatedLines.push('- [[' + rRel + '|' + rFull.replace(/^.*\//, '').replace(/\.md$/, '') + ']]')
         } catch (_e) {
           relatedLines.push('- ' + rFull + '（未找到，降级为文字引用）')
@@ -824,9 +843,9 @@ export function apply(ctx: Context): void {
 
       let target: FsTarget
       try {
-        target = await fs.resolve(resolvedVaultPath + '/' + entryRelPath)
+        target = await fs.resolve(currentVaultPath() + '/' + entryRelPath)
       } catch (_e) {
-        const winPath = resolvedVaultPath + '\\' + entryRelPath.split('/').join('\\')
+        const winPath = currentVaultPath() + '\\' + entryRelPath.split('/').join('\\')
         try { target = await fs.resolve(winPath) } catch (_e2) { return asJsonValue({ ok: false, error: 'cannot resolve vault entry path', code: 'RESOLVE_FAILED' }) }
       }
 
@@ -853,14 +872,14 @@ export function apply(ctx: Context): void {
       try {
         const { execSync } = await import('node:child_process')
         const out = execSync('git add -A && git status --porcelain', {
-          cwd: resolvedVaultPath,
+          cwd: currentVaultPath(),
           timeout: 15000,
           encoding: 'utf-8',
         })
         if (out.trim().length > 0) {
           const msg = 'archive: ' + entryRelPath.replace(/^04-Archive\//, '')
           execSync('git commit -m "' + msg.replace(/"/g, '\\"') + '" && git push', {
-            cwd: resolvedVaultPath,
+            cwd: currentVaultPath(),
             timeout: 60000,
             encoding: 'utf-8',
           })
