@@ -433,31 +433,19 @@ def main():
         inbox_dir.mkdir(parents=True, exist_ok=True)
         out_inbox = inbox_dir / f"{created}_{short_id}.md"
 
-        for path in (out_summary, out_inbox):
-            if path.exists():
-                if "synced: true" in path.read_text(encoding="utf-8", errors="replace"):
-                    print(f"    -> already synced, skip: {path.name}")
-                    stats["skipped"] += 1
-                    break
-                else:
-                    # regenerate (older format)
-                    write_summary(sdir.name, data, topics, out_summary, preset, cwd, str(root))
-                    write_inbox(sdir.name, data, topics, out_inbox, preset, cwd, str(root))
-                    print(f"    -> updated: {out_summary.name}")
-                    stats["new_files"].append(str(out_summary))
-                    stats["new_files"].append(str(out_inbox))
-                    stats["ok"] += 1
-                    break
-            else:
-                write_summary(sdir.name, data, topics, out_summary, preset, cwd, str(root))
-                write_inbox(sdir.name, data, topics, out_inbox, preset, cwd, str(root))
-                print(f"    -> generated: {out_summary.name}")
-                stats["new_files"].append(str(out_summary))
-                stats["new_files"].append(str(out_inbox))
-                stats["ok"] += 1
-                break
+        def _fresh(p):
+            return p.exists() and "synced: true" in p.read_text(encoding="utf-8", errors="replace")
+
+        if _fresh(out_summary) and _fresh(out_inbox):
+            print(f"    -> already synced, skip: {out_summary.name}")
+            stats["skipped"] += 1
         else:
-            continue
+            write_summary(sdir.name, data, topics, out_summary, preset, cwd, str(root))
+            write_inbox(sdir.name, data, topics, out_inbox, preset, cwd, str(root))
+            print(f"    -> updated: {out_summary.name}")
+            stats["new_files"].append(str(out_summary))
+            stats["new_files"].append(str(out_inbox))
+            stats["ok"] += 1
 
     # stats
     print()
