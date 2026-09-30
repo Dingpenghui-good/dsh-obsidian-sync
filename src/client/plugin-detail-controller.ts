@@ -57,6 +57,29 @@ function indexRefreshMsFieldSpec() {
   }
 }
 
+/**
+ * searchEnabled 字段的 format/parse 规范：布尔开关。
+ * 详情页以 Switch 控件呈现，`format` 把布尔值映射为 'true'/'false' 文本
+ * （与页面 `searchEnabled.text === 'true'` 的读法保持一致），
+ * `parse` 把 'true'/'false' 文本解析回布尔值；空串清除回默认（true）。
+ * 必须注册进 SettingsFormModel 的 specs —— 否则 `field('searchEnabled')`
+ * 在 projection() 里抛 "plugin card has no field searchEnabled"。
+ */
+function searchEnabledFieldSpec() {
+  return {
+    field: 'searchEnabled',
+    format: (value: unknown) =>
+      typeof value === 'boolean' ? String(value) : '',
+    parse: (text: string) => {
+      const trimmed = text.trim().toLowerCase()
+      if (trimmed === 'true') return { kind: 'set' as const, value: true }
+      if (trimmed === 'false') return { kind: 'set' as const, value: false }
+      if (trimmed === '') return { kind: 'clear' as const }
+      return undefined
+    },
+  }
+}
+
 /** 把一个宿主 settings 命名空间桥接到详情页的 staged form。 */
 function asFormScope(
   scope: ConfigForm<ObsidianSyncSettings>
@@ -87,6 +110,7 @@ export class ObsidianSyncPageController {
   constructor(scope: ConfigForm<ObsidianSyncSettings>) {
     this.form = new SettingsFormModel(asFormScope(scope), [
       vaultPathFieldSpec(),
+      searchEnabledFieldSpec(),
       indexRefreshMsFieldSpec(),
     ])
     this.store = this.form.bind(() => this.projection())

@@ -24,6 +24,9 @@
 
 import type { Context } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
+// 宿主 Service 由运行时组合（宿主包由宿主自己安装）；插件包声明为普通
+// 依赖只会与宿主的版本产生 peer 漂移（如 0.2.0-rc.2 vs 0.2.0-rc.1），
+// 导致启动时整组插件卡在“等待服务”。因此这里仅做类型导入，不产生运行时依赖。
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import type { FileSystem, FsDirEntry, FsTarget } from '@deepseek-ai/dsh-fs'
 import type { SandboxExecutionPolicy } from '@deepseek-ai/dsh-sandbox'
@@ -38,7 +41,8 @@ function asJsonValue(v: unknown): JsonValue {
 /** Cordis 插件名。 */
 export const name = 'obsidian-sync'
 
-/** 本插件需要的 Service（`tools`/`fs` 为硬依赖，缺失时等待 Cordis 重激活）。 */
+/** 本插件需要的 Service（`tools`/`fs` 为硬依赖，缺失时等待 Cordis 重激活）。
+ *  仅保留真实消费的 Service：settings 是可选增强（未组合时降级为默认值）。 */
 export const inject = ['tools', 'fs']
 
 /** 插件配置。schema 字段标记 `.volatile()`：宿主 settings 框架投影到浏览器
@@ -73,14 +77,20 @@ export function apply(ctx: Context): void {
   // 本插件的 entry id 是 dsh-obsidian-sync（cordis.yml 中的 id）。
   // 行 value 由 Loader 按本文件导出的 Config schema 解析并补默认值，
   // volatile HMR 保存后经 settings 框架即时刷新，读到的就是当前生效值。
-  const settings = ctx.get('settings') as { describe(): Array<{ ns: string; value?: unknown }> } | undefined
+  /** settings 服务是可选增强：未组合时降级为默认值。
+   *  按 SettingsDescriptor 契约读命名空间行（ns + value 由 Loader 按
+   *  本文件导出的 Config schema 解析并补默认值；volatile HMR 保存后即时刷新）。 */
+  const settings = ctx.get('settings') as {
+    describe(): Array<{ ns: string; value?: unknown }>
+  } | undefined
 
-  /** 读命名空间行 value（Loader 已按 Config schema 补默认值）。 */
+  /** 读命名空间行 value。 */
   const readSection = (): Record<string, unknown> | undefined => {
     if (settings === undefined) return undefined
     try {
       const row = settings.describe().find((r) => r.ns === 'dsh-obsidian-sync')
-      return row?.value as Record<string, unknown> | undefined
+      const v = row?.value
+      return (v !== null && typeof v === 'object') ? (v as Record<string, unknown>) : undefined
     } catch (_e) {
       return undefined
     }

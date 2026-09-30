@@ -35,14 +35,20 @@ assert.ok(src.includes('vaultPath'), 'vaultPath field present in form')
 assert.ok(src.includes('indexRefreshMs'), 'indexRefreshMs field present in form')
 assert.ok(src.includes('searchEnabled'), 'searchEnabled field present in form')
 
-// 4. Slot registrations present (plugins.bundle.config / plugins.row.config)
+// 4. Slot registrations present (plugins.bundle.config / plugins.row.config),
+//    gated on configForms presence (0.2.0-rc.2 activation hardening).
 assert.ok(src.includes('plugins.bundle.config'), 'bundle detail slot registered')
 assert.ok(src.includes('plugins.row.config'), 'row detail slot registered')
-assert.ok(src.includes('whileServed'), 'whileServed gate present')
+assert.ok(src.includes('configForms === void 0'), 'configForms presence guard present')
 
-// 5. Inject list
-assert.ok(src.includes('slots'), 'slots in inject')
-assert.ok(src.includes('configForms'), 'configForms in inject')
+// 5. Inject list: only hard dependencies (slots, locale). configForms is read
+//    defensively at activation, never a hard inject, so its absence cannot
+//    fail the web-boot entry.
+assert.ok(src.includes('"slots"'), 'slots in inject')
+assert.ok(src.includes('"locale"'), 'locale in inject')
+const injectLine = [...src.matchAll(/const inject = \[([^\]]*)\]/g)][0]?.[1] ?? ''
+assert.ok(!injectLine.includes('configForms'), 'configForms NOT a hard inject')
+assert.ok(!injectLine.includes('connection'), 'connection NOT a hard inject')
 
 // 6. No inlined @deepseek-ai value imports (purity: cross-plugin only via services)
 //    The require() calls to @deepseek-ai packages must be the ONLY way they

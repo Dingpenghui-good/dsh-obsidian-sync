@@ -16,6 +16,7 @@ import type {} from '@deepseek-ai/dsh-client-ui-plugin-manager/client'
 import type {} from '@deepseek-ai/dsh-client-locale/client'
 // Type-only: the ctx.configForms Context merge and the settings slot types.
 import type {} from '@deepseek-ai/dsh-client-ui-settings/client'
+import type { ConfigForm } from '@deepseek-ai/dsh-client-ui-settings/client'
 
 import { ObsidianSyncPageController } from './plugin-detail-controller.ts'
 import type { ObsidianSyncSettings } from '../shared.ts'
@@ -30,7 +31,34 @@ import {
 
 const DICT_NS = 'settings.dsh-obsidian-sync'
 
-export const inject = ['slots', 'locale', 'configForms', 'connection'] as const
+/**
+ * 占位 ConfigForm：宿主未提供 settings 传输（configForms 服务缺失）时，
+ * 详情页以只读「不可用」快照呈现，保存控件随之禁用 —— 条目永不因缺失
+ * 而抛错。所有 getter 为惰性 thunk（与真实 scope 的快照模型一致）。
+ */
+function unavailableForm(): ConfigForm<ObsidianSyncSettings> {
+  const snapshot = () => ({
+    status: 'unavailable' as const,
+    value: undefined as ObsidianSyncSettings | undefined,
+    base: undefined,
+    user: undefined,
+    writable: false,
+    revision: 0,
+  })
+  return {
+    getSnapshot: snapshot,
+    subscribe: (listener) => {
+      // 只读占位永不提交；返回一个真实的空 disposer（与真实订阅同形）。
+      listener(snapshot())
+      return () => {}
+    },
+    set: () => Promise.resolve(false),
+    unset: () => Promise.resolve(false),
+    mutate: () => Promise.resolve(false),
+  } as ConfigForm<ObsidianSyncSettings>
+}
+
+export const inject = ['slots', 'locale'] as const
 
 export function apply(ctx: ClientContext): void {
   const slots = ctx.get('slots')!
@@ -40,16 +68,22 @@ export function apply(ctx: ClientContext): void {
   ctx.effect(() => locale.register(DICT_NS, { zh: zhDict, en: enDict }), 'obsidian-sync: dictionaries')
 
   // 详情页：把前提条件表单（vault 路径 / 搜索开关 / 索引间隔）挂到插件详情页。
-  // 参照 ui-settings-shell：whileServed 保证部署从未组合宿主侧命名空间时，
-  // 页面不留任何痕迹；注册随 served 变化自动增删。
-  const detailPage = new ObsidianSyncPageController(
-    ctx.get('configForms')!.get<ObsidianSyncSettings>(OBSIDIAN_SYNC_NAMESPACE)
-  )
+  // 激活健壮性（0.2.0-rc.2）：configForms 不是硬依赖，缺失时降级为只读占位
+  // 表单（status: unavailable），条目永不因服务缺失而抛错；slot 注册本身
+  // 不读 configForms，随页面打开才惰性拉取快照。
+  const configForms = ctx.get('configForms')
+
+  const scope: ConfigForm<ObsidianSyncSettings> = configForms
+    ? configForms.get(OBSIDIAN_SYNC_NAMESPACE)
+    : unavailableForm()
+
+  const detailPage = new ObsidianSyncPageController(scope)
   ctx.effect(() => () => {
     detailPage.dispose()
   }, 'obsidian-sync: detail form subscriptions')
 
-  ctx.effect(() => ctx.get('configForms')!.whileServed([OBSIDIAN_SYNC_NAMESPACE], () => {
+  ctx.effect(() => {
+    if (configForms === undefined) return undefined
     // Bundle 详情页（点击插件名字打开的画面）：描述与行之间的配置区块。
     const bundleDisposer = slots.inject('plugins.bundle.config', () => slots.register({
       name: 'plugins.bundle.config',
@@ -68,5 +102,5 @@ export function apply(ctx: ClientContext): void {
       rowDisposer()
       bundleDisposer()
     }
-  }), 'obsidian-sync: detail page')
+  }, 'obsidian-sync: detail page')
 }
