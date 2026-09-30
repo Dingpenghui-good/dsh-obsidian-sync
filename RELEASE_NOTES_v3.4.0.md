@@ -82,7 +82,7 @@ This release bundles the full 0.2.0-rc.2 activation fix (v3.3.0 dependency-decla
 
 - Workspace `lib/client.js` and the installed copy (same file via pnpm junction) have matching hashes, both the post-fix build.
 - Real `SettingsFormModel` activation repro: `APPLY OK` (all 3 effects ran: dictionaries / detail form subscriptions / detail page).
-- Host smoke test passed (4 tools + 3 个 scheduled effects → 3 scheduled effects).
+- Host smoke test passed (4 tools + 3 scheduled effects).
 - Client bundle smoke test passed.
 
 ## Install / upgrade
