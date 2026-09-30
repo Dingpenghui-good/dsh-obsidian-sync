@@ -1,4 +1,4 @@
-﻿---
+---
 type: topic
 created: "2026-09-02"
 aliases: ["obsidian", "笔记软件"]

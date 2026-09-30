@@ -35,5 +35,379 @@
       "2026-09-07"
     ],
     "errors": 0
+  },
+  {
+    "time": "2026-09-08T08:54:35.722105",
+    "action": "maintain",
+    "processed": 0,
+    "created_topics": 0,
+    "moved_to_daily": 0,
+    "errors": 0
+  },
+  {
+    "time": "2026-09-09T08:54:12.475076",
+    "action": "maintain",
+    "processed": 0,
+    "created_topics": 0,
+    "moved_to_daily": 0,
+    "errors": 0
+  },
+  {
+    "time": "2026-09-09T09:07:42.677142",
+    "action": "maintain",
+    "processed": 0,
+    "created_topics": 0,
+    "moved_to_daily": 0,
+    "errors": 0
+  },
+  {
+    "time": "2026-09-09T06:38:00.000000",
+    "action": "full_summary_all_sessions",
+    "total_sessions": 16,
+    "total_conversations": 72,
+    "total_messages": 22000,
+    "topics_count": 8,
+    "problems_found": 6,
+    "problems_solved": 6,
+    "summary_files": [
+      "2026-09-09-DSH-session-summary.md",
+      "2026-09-09-DSH-all-sessions-summary.md"
+    ],
+    "errors": 0
+  },
+  {
+    "time": "2026-09-09T14:48:19.734219",
+    "action": "full_sync_all_sessions",
+    "total_sessions": 23,
+    "total_messages": 3490,
+    "total_tools": 0,
+    "synced_dates": [
+      "2026-09-09"
+    ],
+    "errors": 0
+  },
+  {
+    "time": "2026-09-09T14:50:46.148789",
+    "action": "full_sync_all_sessions",
+    "total_sessions": 23,
+    "total_messages": 301,
+    "total_tools": 422,
+    "synced_dates": [
+      "2026-09-08",
+      "2026-09-09"
+    ],
+    "errors": 0
+  },
+  {
+    "time": "2026-09-09T14:53:19.790650",
+    "action": "full_sync_all_sessions",
+    "total_sessions": 23,
+    "total_messages": 188,
+    "total_tools": 434,
+    "synced_dates": [
+      "2026-09-08",
+      "2026-09-09"
+    ],
+    "errors": 0
+  },
+  {
+    "time": "2026-09-09T14:55:03.036165",
+    "action": "full_sync_all_sessions",
+    "total_sessions": 23,
+    "total_messages": 188,
+    "total_tools": 443,
+    "synced_dates": [
+      "2026-09-08",
+      "2026-09-09"
+    ],
+    "errors": 0
+  },
+  {
+    "time": "2026-09-09T14:56:02.410716",
+    "action": "full_sync_all_sessions",
+    "total_sessions": 23,
+    "total_messages": 263,
+    "total_tools": 829,
+    "synced_dates": [
+      "2026-09-04",
+      "2026-09-07",
+      "2026-09-08",
+      "2026-09-09"
+    ],
+    "errors": 0
+  },
+  {
+    "time": "2026-09-10T08:53:25.429792",
+    "action": "maintain",
+    "processed": 2,
+    "created_topics": 0,
+    "moved_to_daily": 2,
+    "errors": 0
+  },
+  {
+    "time": "2026-09-10T17:51:14.467007",
+    "action": "maintain",
+    "processed": 0,
+    "created_topics": 0,
+    "moved_to_daily": 0,
+    "errors": 0
+  },
+  {
+    "time": "2026-09-11T08:53:49.042241",
+    "action": "maintain",
+    "processed": 0,
+    "created_topics": 0,
+    "moved_to_daily": 0,
+    "errors": 0
+  },
+  {
+    "time": "2026-09-14T08:54:58.227299",
+    "action": "maintain",
+    "processed": 0,
+    "created_topics": 0,
+    "moved_to_daily": 0,
+    "errors": 0
+  },
+  {
+    "time": "2026-09-14T09:32:58.886332",
+    "action": "maintain",
+    "processed": 0,
+    "created_topics": 0,
+    "moved_to_daily": 0,
+    "errors": 0
+  },
+  {
+    "time": "2026-09-15T08:53:28.537374",
+    "action": "maintain",
+    "processed": 0,
+    "created_topics": 0,
+    "moved_to_daily": 0,
+    "errors": 0
+  },
+  {
+    "time": "2026-09-16T09:17:09.429355",
+    "action": "maintain",
+    "processed": 0,
+    "created_topics": 0,
+    "moved_to_daily": 0,
+    "errors": 0
+  },
+  {
+    "time": "2026-09-16T09:39:05.191440",
+    "action": "maintain",
+    "processed": 0,
+    "created_topics": 0,
+    "moved_to_daily": 0,
+    "errors": 0
+  },
+  {
+    "time": "2026-09-30T12:52:42.061489",
+    "action": "full_sync_all_sessions_v2",
+    "roots": [
+      "C:\\Users\\braindge\\.dsh\\sessions",
+      "C:\\Users\\braindge\\.dsh_\\sessions",
+      "C:\\Users\\braindge\\.dsh__\\sessions",
+      "C:\\Users\\braindge\\.dsh___\\sessions"
+    ],
+    "total_sessions": 75,
+    "synced_updated": 69,
+    "skipped": 0,
+    "no_content": 6,
+    "errors": 0,
+    "total_messages": 2314,
+    "total_tools": 5711,
+    "dates": [
+      "2026-09-04",
+      "2026-09-07",
+      "2026-09-08",
+      "2026-09-09",
+      "2026-09-10",
+      "2026-09-11",
+      "2026-09-14",
+      "2026-09-15",
+      "2026-09-16",
+      "2026-09-17",
+      "2026-09-20",
+      "2026-09-23",
+      "2026-09-24",
+      "2026-09-28",
+      "2026-09-29",
+      "2026-09-30"
+    ]
+  },
+  {
+    "time": "2026-09-30T12:59:35.842235",
+    "action": "full_sync_all_sessions_v2",
+    "roots": [
+      "C:\\Users\\braindge\\.dsh\\sessions",
+      "C:\\Users\\braindge\\.dsh_\\sessions",
+      "C:\\Users\\braindge\\.dsh__\\sessions",
+      "C:\\Users\\braindge\\.dsh___\\sessions"
+    ],
+    "total_sessions": 75,
+    "synced_updated": 0,
+    "skipped": 69,
+    "no_content": 6,
+    "errors": 0,
+    "total_messages": 2322,
+    "total_tools": 5739,
+    "dates": [
+      "2026-09-04",
+      "2026-09-07",
+      "2026-09-08",
+      "2026-09-09",
+      "2026-09-10",
+      "2026-09-11",
+      "2026-09-14",
+      "2026-09-15",
+      "2026-09-16",
+      "2026-09-17",
+      "2026-09-20",
+      "2026-09-23",
+      "2026-09-24",
+      "2026-09-28",
+      "2026-09-29",
+      "2026-09-30"
+    ]
+  },
+  {
+    "time": "2026-09-30T13:00:11.144363",
+    "action": "full_sync_all_sessions_v2",
+    "roots": [
+      "C:\\Users\\braindge\\.dsh\\sessions",
+      "C:\\Users\\braindge\\.dsh_\\sessions",
+      "C:\\Users\\braindge\\.dsh__\\sessions",
+      "C:\\Users\\braindge\\.dsh___\\sessions"
+    ],
+    "total_sessions": 75,
+    "synced_updated": 69,
+    "skipped": 0,
+    "no_content": 6,
+    "errors": 0,
+    "total_messages": 2322,
+    "total_tools": 5741,
+    "dates": [
+      "2026-09-04",
+      "2026-09-07",
+      "2026-09-08",
+      "2026-09-09",
+      "2026-09-10",
+      "2026-09-11",
+      "2026-09-14",
+      "2026-09-15",
+      "2026-09-16",
+      "2026-09-17",
+      "2026-09-20",
+      "2026-09-23",
+      "2026-09-24",
+      "2026-09-28",
+      "2026-09-29",
+      "2026-09-30"
+    ]
+  },
+  {
+    "time": "2026-09-30T13:02:48.585729",
+    "action": "full_sync_all_sessions_v2",
+    "roots": [
+      "C:\\Users\\braindge\\.dsh\\sessions",
+      "C:\\Users\\braindge\\.dsh_\\sessions",
+      "C:\\Users\\braindge\\.dsh__\\sessions",
+      "C:\\Users\\braindge\\.dsh___\\sessions"
+    ],
+    "total_sessions": 75,
+    "synced_updated": 69,
+    "skipped": 0,
+    "no_content": 6,
+    "errors": 0,
+    "total_messages": 2325,
+    "total_tools": 5757,
+    "dates": [
+      "2026-09-04",
+      "2026-09-07",
+      "2026-09-08",
+      "2026-09-09",
+      "2026-09-10",
+      "2026-09-11",
+      "2026-09-14",
+      "2026-09-15",
+      "2026-09-16",
+      "2026-09-17",
+      "2026-09-20",
+      "2026-09-23",
+      "2026-09-24",
+      "2026-09-28",
+      "2026-09-29",
+      "2026-09-30"
+    ]
+  },
+  {
+    "time": "2026-09-30T13:03:32.937034",
+    "action": "full_sync_all_sessions_v2",
+    "roots": [
+      "C:\\Users\\braindge\\.dsh\\sessions",
+      "C:\\Users\\braindge\\.dsh_\\sessions",
+      "C:\\Users\\braindge\\.dsh__\\sessions",
+      "C:\\Users\\braindge\\.dsh___\\sessions"
+    ],
+    "total_sessions": 75,
+    "synced_updated": 0,
+    "skipped": 69,
+    "no_content": 6,
+    "errors": 0,
+    "total_messages": 2325,
+    "total_tools": 5760,
+    "dates": [
+      "2026-09-04",
+      "2026-09-07",
+      "2026-09-08",
+      "2026-09-09",
+      "2026-09-10",
+      "2026-09-11",
+      "2026-09-14",
+      "2026-09-15",
+      "2026-09-16",
+      "2026-09-17",
+      "2026-09-20",
+      "2026-09-23",
+      "2026-09-24",
+      "2026-09-28",
+      "2026-09-29",
+      "2026-09-30"
+    ]
+  },
+  {
+    "time": "2026-09-30T13:04:21.442092",
+    "action": "full_sync_all_sessions_v2",
+    "roots": [
+      "C:\\Users\\braindge\\.dsh\\sessions",
+      "C:\\Users\\braindge\\.dsh_\\sessions",
+      "C:\\Users\\braindge\\.dsh__\\sessions",
+      "C:\\Users\\braindge\\.dsh___\\sessions"
+    ],
+    "total_sessions": 75,
+    "synced_updated": 0,
+    "skipped": 69,
+    "no_content": 6,
+    "errors": 0,
+    "total_messages": 2325,
+    "total_tools": 5761,
+    "dates": [
+      "2026-09-04",
+      "2026-09-07",
+      "2026-09-08",
+      "2026-09-09",
+      "2026-09-10",
+      "2026-09-11",
+      "2026-09-14",
+      "2026-09-15",
+      "2026-09-16",
+      "2026-09-17",
+      "2026-09-20",
+      "2026-09-23",
+      "2026-09-24",
+      "2026-09-28",
+      "2026-09-29",
+      "2026-09-30"
+    ]
   }
 ]

@@ -51,7 +51,7 @@
             "state": {
               "type": "search",
               "state": {
-                "query": "",
+                "query": "path:\"_meta/\" ",
                 "matchingCase": false,
                 "explainSearch": false,
                 "collapseAll": false,
@@ -75,7 +75,8 @@
               "title": "书签"
             }
           }
-        ]
+        ],
+        "currentTab": 1
       }
     ],
     "direction": "horizontal",
@@ -184,40 +185,40 @@
       "bases:新建数据库": false
     }
   },
-  "active": "29dd10e126407657",
+  "active": "9dca9d99c9473778",
   "lastOpenFiles": [
+    "02-Topics/deepseek-harness.md",
+    "02-Topics/dsh-conversation-language.md",
+    "02-Topics/npm发布与GitHub-Release.md",
+    "02-Topics/obsidian.md",
+    "02-Topics/python.md",
+    "02-Topics/知识库.md",
+    "02-Topics/插件安装.md",
+    "02-Topics/同步与自动化.md",
+    "01-Daily/2026-09/2026-09-09-同步完成报告.md",
     "00-索引-MOC.md",
+    "00-汇总-活动日志.md",
+    "00-Inbox/问题排查.md",
+    "01-Daily/2026-09/2026-09-09-DSH-af7f9ea3.md",
+    "01-Daily/2026-09/2026-09-09-DSH-ac9be990.md",
+    "01-Daily/2026-09/2026-09-09-DSH-all-sessions-summary.md",
+    "01-Daily/2026-09/2026-09-09-DSH-dc688c90.md",
+    "01-Daily/2026-09/2026-09-09-DSH-e8dac32d.md",
+    "00-Inbox/同步自动化.md",
+    "01-Daily/2026-09/2026-09-09-DSH-fd8a3824.md",
+    "01-Daily/2026-09/2026-09-09-DSH-session-summary.md",
     "SESSION_SYNC.md",
     "README.md",
-    "00-汇总-活动日志.md",
     "01-Daily/2026-09/2026-09-03-plugin-install.md",
     "01-Daily/2026-09/2026-09-03.md",
     "01-Daily/2026-09/2026-09-03-DSH-session-07f6.md",
     "01-Daily/2026-09/2026-09-02.md",
     "02-Topics/dsh-conversation-language.md~RF10c06038.TMP",
-    "01-Daily/2026-09/2026-09-03-DSH-test-final.md",
-    "01-Daily/2026-09/2026-09-03-DSH-session-5019.md",
-    "01-Daily/2026-09/2026-09-03-DSH-session-07f63726.md",
-    "01-Daily/2026-09/2026-09-03-DSH-session-5019ee38.md",
     "auto-sync-sessions.vbs",
-    "01-Daily/2026-09/2026-09-03-DSH-session-.md",
     "sync-dsh-sessions.js",
     "sync-dsh-sessions.py",
-    "02-Topics/npm发布与GitHub-Release.md",
-    "02-Topics/dsh-conversation-language.md",
-    "02-Topics/插件安装.md",
-    "02-Topics/同步与自动化.md",
-    "04-Archive/inbox/2026-09/2026-09-03_1215-user.md",
     "一键启动维护.bat",
-    "02-Topics/系统.md",
-    "00-Inbox/2026-09-03_1215-user.md",
-    "_meta/test_conv.md",
-    "04-Archive/inbox/2026-09/2026-09-03_1214-user.md",
-    "00-Inbox/2026-09-03_1214-user.md",
     "auto-maintain.vbs",
-    "auto-maintain.ps1",
-    "02-Topics/deepseek-harness.md",
-    "02-Topics/obsidian.md",
-    "02-Topics/知识库.md"
+    "auto-maintain.ps1"
   ]
 }
