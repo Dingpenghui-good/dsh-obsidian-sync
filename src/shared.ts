@@ -8,7 +8,7 @@
 export const OBSIDIAN_SYNC_NAMESPACE = 'dsh-obsidian-sync'
 
 /** npm 包名：`plugins.bundle.config` slot 的 key。 */
-export const PLUGIN_PACKAGE_NAME = 'dsh-obsidian-sync'
+export const PLUGIN_PACKAGE_NAME = '@dingpenghui/dsh-obsidian-sync'
 
 /** `plugins.row.config` slot 的 key：`<package>#<row id>`。 */
 export const PLUGIN_ROW_CONFIG_KEY = `${PLUGIN_PACKAGE_NAME}#${OBSIDIAN_SYNC_NAMESPACE}`

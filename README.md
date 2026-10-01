@@ -15,7 +15,9 @@
 
 ## 提供的 Tool
 
-### `obsidian.search`
+> **命名约束**：工具名只使用 `^[a-zA-Z0-9_-]+$` 允许的字符（下划线，**不含点号**）。v3.4.2 及更早版本曾用 `obsidian.search` 这类点号命名，会被 provider 在请求校验阶段拒绝（HTTP 400，整个会话无法对话），请勿改回。
+
+### `obsidian_search`
 
 在 Obsidian 知识库中按关键词搜索相关笔记（中英文均可，自动 CJK bigram 分词）。
 
@@ -40,7 +42,7 @@
 }
 ```
 
-### `obsidian.sync_session`
+### `obsidian_sync_session`
 
 把当前 DSH 会话幂等归档到 Obsidian vault。摘要未变则跳过写盘。
 
@@ -70,7 +72,7 @@
 ### 方式一：从 npm 安装（推荐）
 
 ```bash
-dsh plugin --profile web add dsh-obsidian-sync
+dsh plugin --profile web add @dingpenghui/dsh-obsidian-sync
 ```
 
 ### 方式二：从本地路径安装

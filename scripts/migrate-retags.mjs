@@ -11,7 +11,7 @@ if (!token) {
   console.error('NPM_TOKEN env var required')
   process.exit(1)
 }
-const pkg = 'dsh-obsidian-sync'
+const pkg = '@dingpenghui/dsh-obsidian-sync'
 const tag = process.argv[2] || 'latest'
 const ver = process.argv[3] || '2.0.2'
 

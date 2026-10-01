@@ -11,7 +11,7 @@ const src = fs.readFileSync(libClient, 'utf8')
 
 // 1. CJS factory wrapper present
 assert.ok(src.includes('window.__ModuleLoader__.load({'), 'module loader registration present')
-assert.ok(src.includes('id: "dsh-obsidian-sync"'), 'plugin id stamped')
+assert.ok(src.includes('id: "@dingpenghui/dsh-obsidian-sync"'), 'plugin id stamped')
 assert.ok(src.includes('factory: (require) => {'), 'factory wrapper present')
 assert.ok(src.includes('return module.exports;'), 'factory return present')
 assert.ok(src.includes('exports.apply = apply;'), 'apply export present')

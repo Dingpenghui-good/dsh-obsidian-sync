@@ -16,7 +16,7 @@
 # the row owns must be restated here.
 - insert:
     - id: dsh-obsidian-sync
-      name: 'dsh-obsidian-sync'
+      name: '@dingpenghui/dsh-obsidian-sync'
       config:
         vaultPath: 'E:/dsh-workspace/obsidian-vault'
         searchEnabled: true

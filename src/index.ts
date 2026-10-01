@@ -13,8 +13,8 @@
  *   1. vaultPath —— 必须指向一个已存在的 Obsidian vault 目录（PARA 结构：
  *      02-Projects / 03-Areas / 04-Archive / 05-Resources 与 DSH-会话归档-索引.md）。
  *      路径错则搜索与归档全部失败。默认 E:/dsh-workspace/obsidian-vault。
- *   2. searchEnabled —— 是否注册倒排索引搜索（obsidian.search / obsidian.brief）。
- *      关闭后仅保留 obsidian.read_note 与 obsidian.sync_session。默认 true。
+ *   2. searchEnabled —— 是否注册倒排索引搜索（obsidian_search / obsidian_brief）。
+ *      关闭后仅保留 obsidian_read_note 与 obsidian_sync_session。默认 true。
  *   3. indexRefreshMs —— 索引增量重建 / vault 外部变更感知间隔（≥5000ms）。默认 60000ms。
  *   4. git 自动推送（隐含前提，无需设置）：vault 是 git 仓库且配置了 remote 时，
  *      归档笔记会自动 git commit + push；不满足时笔记仍正常写入，git 步骤在结果中降级提示。
@@ -52,7 +52,7 @@ export const inject = ['tools', 'fs']
 export interface Config {
   /** Obsidian vault 绝对路径；缺省 `E:/dsh-workspace/obsidian-vault`。 */
   vaultPath: string
-  /** 是否注册 obsidian.search（倒排索引 + 定时增量重建）。 */
+  /** 是否注册 obsidian_search（倒排索引 + 定时增量重建）。 */
   searchEnabled: boolean
   /** 索引增量重建间隔（毫秒，下限 5000）。 */
   indexRefreshMs: number
@@ -623,9 +623,13 @@ export function apply(ctx: Context): void {
     }
   }
 
+  // 工具名必须匹配模型 provider 的 function-name 约束 ^[a-zA-Z0-9_-]+$。
+  // v3.4.2 及更早版本用了 `obsidian.search` 这类带点号的命名，DeepSeek API 会在
+  // 请求校验阶段直接返回 400（Invalid 'tools[N].name': string does not match pattern），
+  // 导致任何启用了本插件的会话完全无法发起对话。禁止改回点号命名。
   if (searchEnabled) {
     ctx.tools.register(defineTool({
-      name: 'obsidian.search',
+      name: 'obsidian_search',
       description: '在 Obsidian 知识库中按关键词搜索相关笔记，返回最多 5 条匹配（文件相对路径、命中片段、命中关键词）。按需调用，平时不产生任何 token 成本。',
       parameters: {
         topic: { type: 'string', required: true, description: '搜索关键词，可含多个词（中英文均可，自动做 CJK bigram 分词）' },
@@ -647,7 +651,7 @@ export function apply(ctx: Context): void {
     }))
 
     ctx.tools.register(defineTool({
-      name: 'obsidian.brief',
+      name: 'obsidian_brief',
       description: '每日简报：返回与当前任务最相关的提炼页（02-Projects/03-Areas/05-Resources）top 3 + 最近 3 条归档摘要 + 用户决策习惯与偏好页内容。低成本"开机记忆"入口，建议任务开始前调用一次。',
       parameters: {
         task: { type: 'string', description: '当前任务描述（可选），用于相关性排序；省略则返回全部提炼页按名称排序的 top 3' },
@@ -687,8 +691,8 @@ export function apply(ctx: Context): void {
     }))
 
     ctx.tools.register(defineTool({
-      name: 'obsidian.read_note',
-      description: '按相对路径读取 Obsidian 笔记的 frontmatter 与正文，补全 obsidian.search 的"搜索→阅读"闭环。路径相对 vault 根（如 02-Projects/dsh-obsidian-sync.md），自动解析 YAML frontmatter（key: value / [list] / 数值 / 布尔）。按需调用，零 token 成本。',
+      name: 'obsidian_read_note',
+      description: '按相对路径读取 Obsidian 笔记的 frontmatter 与正文，补全 obsidian_search 的"搜索→阅读"闭环。路径相对 vault 根（如 02-Projects/dsh-obsidian-sync.md），自动解析 YAML frontmatter（key: value / [list] / 数值 / 布尔）。按需调用，零 token 成本。',
       parameters: {
         path: { type: 'string', required: true, description: '笔记相对 vault 的路径（如 02-Projects/dsh-obsidian-sync.md 或 04-Archive/xxx.md）' },
       },
@@ -746,7 +750,7 @@ export function apply(ctx: Context): void {
   }
 
   ctx.tools.register(defineTool({
-    name: 'obsidian.sync_session',
+    name: 'obsidian_sync_session',
     description: '把当前 DSH 会话按 Obsidian vault 的 PARA 结构与用户既有命名/索引规则，以 Markdown 笔记形式幂等写入 vault/04-Archive/，并自动把新条目挂到 DSH-会话归档-索引.md 的按日期段。摘要未变则跳过。幂等键 = date + shortId（标题变更不影响去重）。',
     parameters: {
       session_id: { type: 'string', required: true, description: '当前会话的完整 SessionId（UUID 或短 ID），原样存入 frontmatter 与正文' },

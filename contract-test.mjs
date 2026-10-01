@@ -7,7 +7,7 @@
  * with 0.2.0-rc.1 semantics, and verifies:
  *   - no settings row registration (detail page is the single entry point)
  *   - locale dictionary registration (settings.dsh-obsidian-sync, zh + en)
- *   - detail pages hidden while namespace unserved
+ *   - detail pages registered as soon as configForms is available (v3.4.x design)
  *   - detail pages register after whileServed fires
  *   - vaultPath / searchEnabled / indexRefreshMs write through the config form
  */
@@ -26,9 +26,9 @@ const clientCandidates = [
   process.env.DSH_OBSIDIAN_SYNC_CLIENT,
   path.join(here, 'lib', 'client.js'),
   process.env.DSH_PROFILE_NPM
-    ? path.join(process.env.DSH_PROFILE_NPM, 'dsh-obsidian-sync', 'lib', 'client.js')
+    ? path.join(process.env.DSH_PROFILE_NPM, '@dingpenghui', 'dsh-obsidian-sync', 'lib', 'client.js')
     : undefined,
-  path.join(os.homedir(), '.dsh', 'profiles', 'web', 'node_modules', 'dsh-obsidian-sync', 'lib', 'client.js'),
+  path.join(os.homedir(), '.dsh', 'profiles', 'web', 'node_modules', '@dingpenghui', 'dsh-obsidian-sync', 'lib', 'client.js'),
 ].filter(Boolean)
 
 const clientPath = clientCandidates.find((p) => existsSync(p))
@@ -308,9 +308,13 @@ check('locale dictionaries registered (zh + en for settings.dsh-obsidian-sync)',
   assert(dict.en['form.save'] === 'Save', 'en save mismatch: ' + dict.en['form.save'])
 })
 
-check('detail pages stay hidden while namespace unserved', () => {
-  const detail = slots.registered.filter((e) => e.name === 'plugins.bundle.config' || e.name === 'plugins.row.config')
-  assert(detail.length === 0, 'detail pages should be hidden, got ' + detail.length)
+// v3.4.x 设计：configForms 服务存在即注册详情页 slot，不再等待 whileServed；
+// 只有 configForms 缺失（宿主未提供 settings 传输）时才完全不注册。
+check('detail pages register as soon as configForms is available (v3.4.x design)', () => {
+  const bundleCfg = slots.registered.filter((e) => e.name === 'plugins.bundle.config')
+  const rowCfg = slots.registered.filter((e) => e.name === 'plugins.row.config')
+  assert(bundleCfg.length === 1, 'plugins.bundle.config should register immediately, got ' + bundleCfg.length)
+  assert(rowCfg.length === 1, 'plugins.row.config should register immediately, got ' + rowCfg.length)
 })
 
 configForms._serve()
@@ -319,8 +323,8 @@ check('detail pages register after whileServed fires', () => {
   const rowCfg = slots.registered.filter((e) => e.name === 'plugins.row.config')
   assert(bundleCfg.length === 1, 'plugins.bundle.config missing, got ' + bundleCfg.length)
   assert(rowCfg.length === 1, 'plugins.row.config missing, got ' + rowCfg.length)
-  assert(bundleCfg[0].key === 'dsh-obsidian-sync', 'bundle key mismatch: ' + bundleCfg[0].key)
-  assert(rowCfg[0].key === 'dsh-obsidian-sync#dsh-obsidian-sync', 'row key mismatch: ' + rowCfg[0].key)
+  assert(bundleCfg[0].key === '@dingpenghui/dsh-obsidian-sync', 'bundle key mismatch: ' + bundleCfg[0].key)
+  assert(rowCfg[0].key === '@dingpenghui/dsh-obsidian-sync#dsh-obsidian-sync', 'row key mismatch: ' + rowCfg[0].key)
 })
 
 check('vaultPath writes through the config form', () => {

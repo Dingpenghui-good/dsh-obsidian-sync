@@ -56,13 +56,13 @@ function makeCtx() {
 const ctx = makeCtx()
 apply(ctx, {})
 assert.ok(registeredTools.length > 0, 'should register tools, got ' + registeredTools.length)
-assert.ok(registeredTools.some(t => t.name === 'obsidian.search'), 'obsidian.search registered')
-assert.ok(registeredTools.some(t => t.name === 'obsidian.read_note'), 'obsidian.read_note registered')
-assert.ok(registeredTools.some(t => t.name === 'obsidian.sync_session'), 'obsidian.sync_session registered')
+assert.ok(registeredTools.some(t => t.name === 'obsidian_search'), 'obsidian_search registered')
+assert.ok(registeredTools.some(t => t.name === 'obsidian_read_note'), 'obsidian_read_note registered')
+assert.ok(registeredTools.some(t => t.name === 'obsidian_sync_session'), 'obsidian_sync_session registered')
 assert.ok(effects.some(e => /index refresh/.test(e)), 'index refresh effect registered')
 
-// 调用 obsidian.search 工具 execute（无索引，应返回空匹配而非抛错）
-const search = registeredTools.find(t => t.name === 'obsidian.search')
+// 调用 obsidian_search 工具 execute（无索引，应返回空匹配而非抛错）
+const search = registeredTools.find(t => t.name === 'obsidian_search')
 const r = await search.execute({ topic: 'test', limit: 1 }, { signal: new AbortController().signal })
 assert.equal(r.ok, true, 'search should succeed with empty index')
 assert.equal(r.count, 0, 'no matches expected')

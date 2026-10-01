@@ -12,7 +12,7 @@
 #   4. git 自动推送（隐含）：vault 为 git 仓库且有 remote 时归档自动 commit + push
 #
 # 4 个 Tool（由 apply() 通过 ctx.tools.register(defineTool(...)) 动态注册）：
-#   - obsidian.search       在 Obsidian 知识库中按关键词搜索相关笔记（倒排索引 + CJK bigram）
-#   - obsidian.brief        每日简报：最相关提炼页 top3 + 最近归档 + 用户决策偏好
-#   - obsidian.read_note    按相对路径读取 Obsidian 笔记的 frontmatter 与正文
-#   - obsidian.sync_session 把当前 DSH 会话幂等归档到 vault/04-Archive/ 并自动挂索引
+#   - obsidian_search       在 Obsidian 知识库中按关键词搜索相关笔记（倒排索引 + CJK bigram）
+#   - obsidian_brief        每日简报：最相关提炼页 top3 + 最近归档 + 用户决策偏好
+#   - obsidian_read_note    按相对路径读取 Obsidian 笔记的 frontmatter 与正文
+#   - obsidian_sync_session 把当前 DSH 会话幂等归档到 vault/04-Archive/ 并自动挂索引
