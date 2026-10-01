@@ -378,12 +378,16 @@ export function apply(ctx: Context): void {
 
   /** 确保 shortId 恰好 8 位：不足时补 SHA-1 前缀 hash。 */
   function normalizeShortId(sessionId: string): string {
-    let s = sessionId.replace(/[^A-Za-z0-9]/g, '')
+    // 剥离约定的 "session-" 前缀：传 "session-<uuid>" 时短 ID 应取 uuid 首 8 位，
+    // 而非把 "session" 字样计入（否则 "session-9f10d319…" 会误归一化为 "session9"）。
+    // 仅影响入参形态，幂等键与既有归档（裸 uuid / 8 位短 ID）保持一致。
+    const stripped = sessionId.replace(/^session-/i, '')
+    let s = stripped.replace(/[^A-Za-z0-9]/g, '')
     if (s.length >= 8) return s.slice(0, 8)
-    // 不足 8 位：用原始 sessionId 的简单 hash 补齐
+    // 不足 8 位：用剥离前缀后的 sessionId 的简单 hash 补齐
     let hash = 0
-    for (let i = 0; i < sessionId.length; i++) {
-      hash = ((hash << 5) - hash + sessionId.charCodeAt(i)) | 0
+    for (let i = 0; i < stripped.length; i++) {
+      hash = ((hash << 5) - hash + stripped.charCodeAt(i)) | 0
     }
     s = s + Math.abs(hash).toString(16).slice(0, 8)
     return s.slice(0, 8)

@@ -127,7 +127,19 @@ const noise = await tool.execute({ session_id: 'aaaaaaaa', title: '你是谁', s
 assert.equal(noise.skipped, true, 'noise session still filtered')
 assert.equal(noise.noise, true, 'noise flag present')
 
+// 9) 带 "session-" 前缀的完整 ID 归一化为 uuid 前 8 位（而非 "sessionX"），
+//    且与裸 uuid 落同一幂等键（date + shortId 相同）
+files.clear()
+seedIndex()
+const rA = await tool.execute({ session_id: 'session-9f10d319-c1d3-4629-bf6d-a360d6729221', title: '前缀归一化验证', summary: SUMMARY, date: '2026-09-11' })
+assert.equal(rA.skipped, false, 'prefixed ID first write')
+assert.equal(rA.file, '04-Archive/2026-09-11-9f10d319-前缀归一化验证.md', 'shortId strips session- prefix, got ' + rA.file)
+const rB = await tool.execute({ session_id: '9f10d319-c1d3-4629-bf6d-a360d6729221', title: '前缀归一化验证', summary: SUMMARY, date: '2026-09-11' })
+assert.equal(rB.file, '04-Archive/2026-09-11-9f10d319-前缀归一化验证.md', 'bare uuid maps to same file as prefixed form')
+assert.equal(rB.skipped, true, 'prefixed and bare uuid share the same idempotent key')
+
 console.log('PASS: date 参数（文件名/frontmatter/表格/索引）与摘要幂等比较全部通过')
 console.log('  file:', r1.file)
 console.log('  index line:', idx1.split('\n').find(l => l.includes('a9095879')))
+console.log('  prefixed → shortId:', rA.file)
 process.exit(0)
