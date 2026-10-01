@@ -46,6 +46,8 @@
 
 把当前 DSH 会话幂等归档到 Obsidian vault。摘要未变则跳过写盘。
 
+可选参数 `date`（`YYYY-MM-DD`）用于指定归档日期，回填历史会话时使用；省略或格式非法时取当前 UTC 日期。该值同时决定文件名前缀、frontmatter `date`、正文日期与索引挂载的日期段。
+
 ```jsonc
 // 输入
 {
@@ -54,7 +56,8 @@
   "summary": "用户需求：… 过程要点：… 交付物：…",
   "tags": ["dsh", "obsidian", "cordis"],
   "related": ["2026-09-11-a9095879-dsh-tool-agnes工具升级与发布.md"],
-  "raw_log": "C:\\Users\\dph\\.dsh\\sessions\\--E-dsh-workspace--\\session-76bb60db\\session.v3.jsonl.zstd"
+  "raw_log": "C:\\Users\\dph\\.dsh\\sessions\\--E-dsh-workspace--\\session-76bb60db\\session.v3.jsonl.zstd",
+  "date": "2026-09-13"
 }
 
 // 输出（首次写入）

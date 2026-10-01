@@ -766,6 +766,8 @@ export function apply(ctx: Context): void {
       tags: { type: 'array', items: { type: 'string' }, description: '主题标签数组，最多 10 个，将写入 frontmatter tags 字段（Obsidian 原生标签）' },
       related: { type: 'array', items: { type: 'string' }, description: '关联笔记完整文件名（含 .md 扩展名，如 2026-09-11-a9095879-xxx.md），将生成为 [[全路径双链]]' },
       raw_log: { type: 'string', description: '原始会话日志绝对路径，格式 ~/.dsh/sessions/<project-dir>/session-<uuid>/session.v3.jsonl.zstd，将写入落款以便追溯' },
+      // 可选参数：dsh-tools 的 ParameterPropertySpec 只允许 `required?: true`，省略即表示可选（同 tags/related）。
+      date: { type: 'string', description: '归档日期（YYYY-MM-DD），回填历史会话时使用；省略则取当前 UTC 日期。仅匹配该格式时采用，否则回退当前 UTC 日期' },
     },
     output: {
       schema: { type: 'json' },
@@ -785,7 +787,10 @@ export function apply(ctx: Context): void {
         return asJsonValue({ ok: true, skipped: true, noise: true, reason: 'identity-test noise session filtered out (short title + short summary)', index: 'unchanged' })
       }
 
-      const dateStr = new Date().toISOString().slice(0, 10)
+      // 归档日期：优先采用调用方传入的 date（用于回填历史会话），未传或格式非法时回退当前 UTC 日期。
+      // dateStr 单一来源：文件名前缀 / frontmatter date / 基本信息表格 / 索引行日期段全部沿用它。
+      const rawDate = String(args.date ?? '').trim()
+      const dateStr = /^\d{4}-\d{2}-\d{2}$/.test(rawDate) ? rawDate : new Date().toISOString().slice(0, 10)
       const shortId = normalizeShortId(sessionId)
 
       // 幂等键 = date + shortId（标题不参与路径），写入前按前缀探测已存在文件并原地覆盖
@@ -865,7 +870,16 @@ export function apply(ctx: Context): void {
         const prev = String(await fs.readText(target))
         const marker = '## 摘要'
         const pos = prev.indexOf(marker)
-        if (pos >= 0 && prev.slice(pos + marker.length).trim() === summary.trim()) skipped = true
+        if (pos >= 0) {
+          // 摘要区块末尾 = 下一个 `## ` 标题 / `\n---\n` 分隔线 / 空行起的落款引用行中最早出现的位置；
+          // 只比较摘要本身，否则 `## 关联` 与落款会被带入导致全串永不相等、每次重写。
+          const bodyStart = pos + marker.length
+          const boundaries = ['\n## ', '\n---\n', '\n\n> ']
+            .map(sep => prev.indexOf(sep, bodyStart))
+            .filter(i => i !== -1)
+          const bodyEnd = boundaries.length > 0 ? Math.min(...boundaries) : prev.length
+          if (prev.slice(bodyStart, bodyEnd).trim() === summary.trim()) skipped = true
+        }
       } catch (_e) { /* 尚不存在 */ }
       if (skipped) return asJsonValue({ ok: true, skipped: true, file: entryRelPath, reason: 'summary unchanged', index: 'unchanged' })
 
