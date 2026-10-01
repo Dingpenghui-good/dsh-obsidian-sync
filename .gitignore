@@ -5,3 +5,6 @@ lib/
 .env
 .npmrc
 .DS_Store
+
+# 运行期临时输出（勿提交）
+scripts/.tmp-*
