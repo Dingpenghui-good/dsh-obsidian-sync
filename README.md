@@ -114,6 +114,7 @@ pnpm typecheck    # tsc 类型检查
 node scripts/test-tokenize.mjs      # CJK bigram 分词
 node scripts/test-idempotent.mjs    # 幂等 upsert
 node scripts/test-index-boundary.mjs # 索引边界插入
+node scripts/test-sync-session-date-idempotent.mjs # sync_session 的 date 参数与摘要幂等比较
 ```
 
 ## 发布
