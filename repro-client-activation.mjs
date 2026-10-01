@@ -11,8 +11,12 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import { createRequire } from 'node:module'
+import { fileURLToPath } from 'node:url'
 
-const root = 'D:/DSH/workspace/dsh-obsidian-sync'
+// Repo root: the script's own directory (overridable), not a hardcoded path.
+const root = process.env.DSH_OBSIDIAN_SYNC_ROOT
+  ? path.resolve(process.env.DSH_OBSIDIAN_SYNC_ROOT)
+  : path.dirname(fileURLToPath(import.meta.url))
 const cjsRequire = createRequire(path.join(root, 'package.json'))
 
 // Minimal DOM stubs so CSS injection + primitives code can run headless.
