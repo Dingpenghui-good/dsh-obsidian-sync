@@ -24,9 +24,16 @@
 
 import type { Context } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
-// 宿主 Service 由运行时组合（宿主包由宿主自己安装）；插件包声明为普通
-// 依赖只会与宿主的版本产生 peer 漂移（如 0.2.0-rc.2 vs 0.2.0-rc.1），
-// 导致启动时整组插件卡在“等待服务”。因此这里仅做类型导入，不产生运行时依赖。
+// defineTool 是运行时值导入，但 @deepseek-ai/dsh-tools 与 @deepseek-ai/cordis
+// 必须声明在 peerDependencies，**绝不可放进 dependencies**：DSH 通过模块级
+//   TOOL_RUNTIME_SCHEDULER = Symbol('@deepseek-ai/dsh-tools.scheduler')
+// 定位工具调度器，而 Symbol() 在不同模块副本间不共享身份。把 dsh-tools 放进
+// dependencies 会让 pnpm 在 profile 中装出第二份副本，于是 agent-loop 里的
+//   ctx.tools[TOOL_RUNTIME_SCHEDULER].prepare(...)
+// 取到 undefined，任何工具调用都会抛
+//   "Cannot read properties of undefined (reading 'prepare')"。
+// 官方插件（dsh-tool-cordis / dsh-tool-jobs）同样只把 dsh-tools 放在 peer 中。
+// 详见 RELEASE_NOTES_v3.4.4.md。
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import type { FileSystem, FsDirEntry, FsTarget } from '@deepseek-ai/dsh-fs'
 import type { SandboxExecutionPolicy } from '@deepseek-ai/dsh-sandbox'
