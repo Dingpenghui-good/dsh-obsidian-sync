@@ -1,6 +1,6 @@
 {
   "name": "@dingpenghui/dsh-obsidian-sync",
-  "version": "3.4.7",
+  "version": "3.4.8",
   "description": "DSH Obsidian Sync - DSH Cordis plugin: on-demand Obsidian knowledge-base search + DSH session archiving following your vault's existing PARA rules (zero token injection, in-process fs, inverted index, idempotent upsert)",
   "type": "module",
   "main": "./lib/index.js",
@@ -21,8 +21,11 @@
     "src",
     "cordis.patch.yml",
     "README.md",
-    "RELEASE_NOTES_v3.4.7.md"
+    "RELEASE_NOTES_v3.4.8.md"
   ],
+  "engines": {
+    "dsh": ">=0.2.0-rc.1 <0.3.0-0"
+  },
   "dsh": {
     "bundle": {
       "patch": "./cordis.patch.yml"
@@ -44,7 +47,8 @@
     "build": "tsdown",
     "dev": "tsdown --watch",
     "typecheck": "tsc -p tsconfig.json",
-    "test": "node smoke-test.mjs"
+    "test": "node smoke-test.mjs && node engines-check.mjs",
+    "prepublishOnly": "node engines-check.mjs"
   },
   "dependencies": {},
   "peerDependencies": {
