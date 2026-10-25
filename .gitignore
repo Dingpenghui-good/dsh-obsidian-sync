@@ -1,11 +1,9 @@
-# 依赖（构建期）/ 构建产物
+# 依赖（构建期）/ 本地凭据 / 日志
 node_modules/
-lib/
-*.tsbuildinfo
-
-# 本地凭据
 .npmrc
 .env
-
-# 日志
 *.log
+*.tsbuildinfo
+
+# 注意：lib/ 是随包发布的构建产物，**必须提交**（npm publish 直接读取它）。
+# 它由 tsdown 从 src/ 生成；提交前请确保与 src/ 一致（见 README「发布」一节）。

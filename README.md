@@ -136,10 +136,13 @@ dsh plugin --profile desktop add .
 ## 开发
 
 ```bash
-pnpm install
-pnpm build        # tsdown 构建 → lib/
-pnpm typecheck    # tsc 类型检查
+pnpm install      # 首次：安装 tsdown / typescript / lightningcss 等构建工具
+pnpm build        # tsdown 构建 → lib/（lib/ 随包发布，必须提交）
+pnpm typecheck    # tsc --noEmit
 ```
+
+`lib/` 的出处与「如何验证 lib 与 src 一致」见 [docs/BUILD-PROVENANCE.md](docs/BUILD-PROVENANCE.md)。
+本机离线环境怎么准备 node_modules（含已知坑）也记在那份文档里。
 
 ### 测试
 
@@ -148,15 +151,27 @@ node --experimental-strip-types test/brain-retrieval.test.mjs   # 纯函数回�
 node --experimental-strip-types test/brain-runtime.test.mjs     # 运行级冒烟（注入/去重/沉淀/幂等）
 ```
 
+第二个测试用真实的 `@deepseek-ai/dsh-session` 与 `@deepseek-ai/dsh-llm` 构造会话，
+驱动真实的 `src/brain.ts`，只把 LLM 换成固定输出的假实现 —— 不需要拉起 DSH 就能验证全链路。
+
 ## 发布
 
 ```bash
-pnpm version patch
+# 1. 确认产物与源码一致
+pnpm build && git diff --stat -- lib
+
+# 2. 版本号 + 提交
+#    注意 package.json 的 version 与 RELEASE_NOTES_v<version>.md 必须对齐
+npm version patch --no-git-tag-version
+git commit -am "chore: release vX.Y.Z"
+
+# 3. 打 tag 并发布（npm 需要本地 .npmrc 里的 token）
 git push origin main --tags
 npm publish
 ```
 
 `.npmrc` 不入版本库（含 npm access token），发布前需本地配置。
+`prepublishOnly` 未挂检查脚本；发布前请手动跑一遍上面两套测试。
 
 ## 许可证
 
