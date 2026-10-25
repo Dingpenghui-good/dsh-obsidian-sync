@@ -1,0 +1,6 @@
+=== ef02cecb ===
+title: 所有会话同步obsidian
+initial_user_request:
+所有会话同步obsidian
+token_usage_keys: ['totals', 'last']
+total_tokens: 0

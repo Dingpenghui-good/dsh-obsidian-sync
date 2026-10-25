@@ -1,0 +1,7 @@
+=== d590d2ef ===
+messages=0 user=0 assistant=0 tools=0
+tools: 
+
+--- USER MESSAGES ---
+--- ASSISTANT MESSAGES (first 3) ---
+--- ASSISTANT MESSAGES (last 2) ---

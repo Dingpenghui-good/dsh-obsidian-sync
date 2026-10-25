@@ -1,0 +1,7 @@
+=== session e94a90be ===
+total_records=23 rounds=0 tool_calls=0
+
+--- USER MESSAGES ---
+--- ASSISTANT MESSAGES (first 3) ---
+--- TOOL CALLS ---
+(none recorded)

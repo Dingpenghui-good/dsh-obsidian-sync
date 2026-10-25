@@ -1,0 +1,13 @@
+{
+  "session_id": "a9095879",
+  "title": "dsh-tool-agnes 工具升级与发布",
+  "summary": "该会话发生在 2026-09-11，共 9 轮，主题为「dsh-tool-agnes 工具升级、发布与默认模型切换（v1.4.0→v1.5.0）」。用户需求：未保留原始需求文本。过程与交付详见 frontmatter 标签：DSH, npm 发布, GitHub, 工具升级。原始日志未在本工具中解压，摘要基于已有归档笔记与索引信息。 该记录用于补齐 DSH 会话归档，确保 Obsidian 与本地会话目录一致。",
+  "tags": [
+    "DSH",
+    "npm 发布",
+    "GitHub",
+    "工具升级"
+  ],
+  "related": [],
+  "raw_log": "C:\\Users\\dph\\.dsh\\sessions\\--E-dsh-workspace--\\session-a9095879-df9e-4fbf-ad5d-bee10f641363\\session.v3.jsonl.zstd"
+}

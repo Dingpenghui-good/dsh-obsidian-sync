@@ -1,0 +1,13 @@
+{
+  "session_id": "76b6f1b3",
+  "title": "dsh-conversation-language 版本兼容修复",
+  "summary": "该会话发生在 2026-09-10，共 5 轮，主题为「版本兼容修复 + plugin-manager 升级（npm 卡在 2FA）」。用户需求：未保留原始需求文本。过程与交付详见 frontmatter 标签：DSH, 插件开发, npm 发布, 版本兼容。原始日志未在本工具中解压，摘要基于已有归档笔记与索引信息。 该记录用于补齐 DSH 会话归档，确保 Obsidian 与本地会话目录一致。",
+  "tags": [
+    "DSH",
+    "插件开发",
+    "npm 发布",
+    "版本兼容"
+  ],
+  "related": [],
+  "raw_log": "C:\\Users\\dph\\.dsh\\sessions\\--E-dsh-workspace--\\session-76b6f1b3-4204-4929-9ee3-40fc1ce2066b\\session.v3.jsonl.zstd"
+}

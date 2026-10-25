@@ -1,0 +1,92 @@
+{
+  "18433af5": {
+    "title": "@dsh-obsidian-sync/ @obsidian-vault/ 根",
+    "initial_request": "@dsh-obsidian-sync/ @obsidian-vault/ \n根据这两个目录的内容，提一些优化建议，往AI更容易理解的方向发展",
+    "total_tokens": 0,
+    "token_keys": [
+      "totals",
+      "last"
+    ]
+  },
+  "1f0a2e22": {
+    "title": "@dsh-obsidian-sync/ @obsidian-vault/",
+    "initial_request": "@dsh-obsidian-sync/ @obsidian-vault/",
+    "total_tokens": 0,
+    "token_keys": [
+      "totals",
+      "last"
+    ]
+  },
+  "36ccd4c6": {
+    "title": "调查会话任务状态异常原因",
+    "initial_request": "检查一下，会话都已经结束了，为什么最后一个任务还是进行中，先调查原因，不要改任何东西",
+    "total_tokens": 0,
+    "token_keys": [
+      "totals",
+      "last"
+    ]
+  },
+  "7984b136": {
+    "title": "你是谁",
+    "initial_request": "你是谁",
+    "total_tokens": 0,
+    "token_keys": [
+      "totals",
+      "last"
+    ]
+  },
+  "d590d2ef": {
+    "title": "Obsidian Brief Creation",
+    "initial_request": "obsidian.brief",
+    "total_tokens": 0,
+    "token_keys": [
+      "totals",
+      "last"
+    ]
+  },
+  "df12a12a": {
+    "title": "初始化DSH大脑Obsidian",
+    "initial_request": "DSH大脑根据以往的obsidian内容，进行一次初始化",
+    "total_tokens": 0,
+    "token_keys": [
+      "totals",
+      "last"
+    ]
+  },
+  "e94a90be": {
+    "title": "简化代理开关命令",
+    "initial_request": "现在我使用下面的命令进行开启代理，关闭代理\ncd $env:USERPROFILE\\warp\r\n.\\proxy.ps1 status    # 看状态\r\n.\\proxy.ps1 stop      # 停止\r\n.\\proxy.ps1 start     # 重启代理模式\n\n检查当前代理的设置方式，给我一个更方便的开启/关闭代理的方式",
+    "total_tokens": 0,
+    "token_keys": [
+      "totals",
+      "last"
+    ]
+  },
+  "ec4f26c1": {
+    "title": "执行最终同步结论",
+    "initial_request": "@@dsh-obsidian-sync/ @obsidian-vault/ \n根据最终结论，依次执行",
+    "total_tokens": 0,
+    "token_keys": [
+      "totals",
+      "last"
+    ]
+  },
+  "ef02cecb": {
+    "title": "所有会话同步obsidian",
+    "initial_request": "所有会话同步obsidian",
+    "total_tokens": 0,
+    "token_keys": [
+      "totals",
+      "last"
+    ]
+  },
+  "fbc6b0d7": {
+    "title": "Obsidian同步插件版本兼容与性能优化",
+    "initial_request": "@dsh-obsidian-sync/ 检查一下这个插件的版本是否能够装在现在的DSH版本中。\n检查完成之后，根据原来的插件设计理念，提出能够优化的方向，建议使这个插件几乎不影响DSH的token，性能",
+    "total_tokens": 0,
+    "token_keys": [
+      "totals",
+      "last"
+    ]
+  }
+}

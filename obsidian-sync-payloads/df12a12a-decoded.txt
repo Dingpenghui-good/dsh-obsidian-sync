@@ -1,0 +1,7 @@
+=== session df12a12a ===
+total_records=63 rounds=0 tool_calls=0
+
+--- USER MESSAGES ---
+--- ASSISTANT MESSAGES (first 3) ---
+--- TOOL CALLS ---
+(none recorded)

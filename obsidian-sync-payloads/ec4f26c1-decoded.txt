@@ -1,0 +1,7 @@
+=== session ec4f26c1 ===
+total_records=56 rounds=0 tool_calls=0
+
+--- USER MESSAGES ---
+--- ASSISTANT MESSAGES (first 3) ---
+--- TOOL CALLS ---
+(none recorded)

@@ -1,0 +1,7 @@
+=== fbc6b0d7 ===
+title: Obsidian同步插件版本兼容与性能优化
+initial_user_request:
+@dsh-obsidian-sync/ 检查一下这个插件的版本是否能够装在现在的DSH版本中。
+检查完成之后，根据原来的插件设计理念，提出能够优化的方向，建议使这个插件几乎不影响DSH的token，性能
+token_usage_keys: ['totals', 'last']
+total_tokens: 0

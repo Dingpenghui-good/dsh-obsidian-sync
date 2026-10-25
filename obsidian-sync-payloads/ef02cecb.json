@@ -1,0 +1,10 @@
+{
+  "session_id": "ef02cecb",
+  "title": "dsh-workspace 会话未知主题",
+  "summary": "该会话为本地 DSH 日志中尚未在 Obsidian 归档的文件，文件修改时间对应 unknown。需求：未保留原始需求文本。由于原始日志为 zstd 压缩且未在本环境中解压，本摘要基于可用上下文生成，建议后续人工核对。 该记录用于补齐 DSH 会话归档，确保 Obsidian 与本地会话目录一致。",
+  "tags": [
+    "DSH"
+  ],
+  "related": [],
+  "raw_log": "C:\\Users\\dph\\.dsh\\sessions\\--E-dsh-workspace--\\session-ef02cecb-a5ba-4339-bfa1-3ffad11d5961\\session.v3.jsonl.zstd"
+}

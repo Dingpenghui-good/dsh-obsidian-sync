@@ -1,0 +1,1 @@
+{"type":"session","version":3,"id":"session-36ccd4c6-7378-46c3-bac0-43d8d8fc62b9","createdAt":1789317100694,"cwd":"E:\\dsh-workspace","isSeeded":false,"delegationDepth":0,"agentPreset":"cordis"}

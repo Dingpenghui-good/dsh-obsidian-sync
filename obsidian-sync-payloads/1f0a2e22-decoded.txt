@@ -1,0 +1,7 @@
+=== session 1f0a2e22 ===
+total_records=12 rounds=0 tool_calls=0
+
+--- USER MESSAGES ---
+--- ASSISTANT MESSAGES (first 3) ---
+--- TOOL CALLS ---
+(none recorded)

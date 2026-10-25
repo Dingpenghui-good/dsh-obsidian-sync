@@ -1,0 +1,6 @@
+=== df12a12a ===
+title: 初始化DSH大脑Obsidian
+initial_user_request:
+DSH大脑根据以往的obsidian内容，进行一次初始化
+token_usage_keys: ['totals', 'last']
+total_tokens: 0

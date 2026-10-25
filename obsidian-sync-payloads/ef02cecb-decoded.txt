@@ -1,0 +1,7 @@
+=== session ef02cecb ===
+total_records=33 rounds=0 tool_calls=0
+
+--- USER MESSAGES ---
+--- ASSISTANT MESSAGES (first 3) ---
+--- TOOL CALLS ---
+(none recorded)

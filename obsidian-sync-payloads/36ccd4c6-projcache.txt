@@ -1,0 +1,6 @@
+=== 36ccd4c6 ===
+title: 调查会话任务状态异常原因
+initial_user_request:
+检查一下，会话都已经结束了，为什么最后一个任务还是进行中，先调查原因，不要改任何东西
+token_usage_keys: ['totals', 'last']
+total_tokens: 0

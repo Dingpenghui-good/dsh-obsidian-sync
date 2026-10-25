@@ -1,0 +1,12 @@
+=== e94a90be ===
+title: 简化代理开关命令
+initial_user_request:
+现在我使用下面的命令进行开启代理，关闭代理
+cd $env:USERPROFILE\warp
+.\proxy.ps1 status    # 看状态
+.\proxy.ps1 stop      # 停止
+.\proxy.ps1 start     # 重启代理模式
+
+检查当前代理的设置方式，给我一个更方便的开启/关闭代理的方式
+token_usage_keys: ['totals', 'last']
+total_tokens: 0

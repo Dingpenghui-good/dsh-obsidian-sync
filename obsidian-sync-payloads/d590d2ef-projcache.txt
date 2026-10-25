@@ -1,0 +1,6 @@
+=== d590d2ef ===
+title: Obsidian Brief Creation
+initial_user_request:
+obsidian.brief
+token_usage_keys: ['totals', 'last']
+total_tokens: 0
