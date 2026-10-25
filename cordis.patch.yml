@@ -1,0 +1,46 @@
+# DSH Obsidian Sync plugin configuration
+# Install: dsh plugin --profile desktop add <path-to-plugin>
+#
+# The row id IS the settings namespace: the settings framework keys every
+# descriptor by the entry's id, and the client addresses the form through
+# `configForms.get('dsh-obsidian-sync')`. Schema defaults materialize when the
+# row ships no config.
+#
+# Prerequisites (editable on the plugin detail page, volatile HMR live apply):
+#   vaultPath           - absolute path to an existing Obsidian vault (PARA layout)
+#   searchEnabled       - whether to register the inverted-index search tools
+#   indexRefreshMs      - index rebuild / external-change detection interval (>= 5000)
+#
+# Live brain (v4.0.0):
+#   brainRetrieval       - per-turn retrieval + injection of relevant vault memory
+#   brainRetrievalTopK   - how many notes to inject (1..8)
+#   brainRetrievalMaxChars / brainRetrievalMinScore / brainRetrievalTimeoutMs
+#   brainAutoUpdate      - per-turn real-time distilled memory update (extra LLM call)
+#   brainMemoryProvider / brainMemoryModel / brainMemoryApiKeyEnv
+#   brainMemoryMaxCalls  - per-process distillation call budget
+#   brainAutoCommit      - git commit + push after distilled writes
+#   brainLogCapBytes     - per-section size cap of the live transcript log
+#
+# A bundle patch replaces the WHOLE config of its target row, so every key
+# the row owns must be restated here. Keep this file ASCII-only: pnpm copies it
+# and a non-UTF-8 read has corrupted non-ASCII comments before (v3.3.x).
+- insert:
+    - id: dsh-obsidian-sync
+      name: '@dingpenghui/dsh-obsidian-sync'
+      config:
+        vaultPath: 'E:/dsh-workspace/obsidian-vault'
+        searchEnabled: true
+        indexRefreshMs: 60000
+        brainRetrieval: true
+        brainRetrievalTopK: 3
+        brainRetrievalMaxChars: 1800
+        brainRetrievalMinScore: 2.5
+        brainRetrievalTimeoutMs: 1500
+        brainAutoUpdate: false
+        brainMemoryProvider: ''
+        brainMemoryModel: ''
+        brainMemoryApiKeyEnv: ''
+        brainMemoryMaxCalls: 20
+        brainPinnedBudget: 2
+        brainAutoCommit: false
+        brainLogCapBytes: 200000

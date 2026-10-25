@@ -1,0 +1,11 @@
+# 依赖（构建期）/ 构建产物
+node_modules/
+lib/
+*.tsbuildinfo
+
+# 本地凭据
+.npmrc
+.env
+
+# 日志
+*.log
