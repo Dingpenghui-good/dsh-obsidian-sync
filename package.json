@@ -1,6 +1,6 @@
 {
   "name": "@dingpenghui/dsh-obsidian-sync",
-  "version": "4.0.1",
+  "version": "4.0.2",
   "description": "DSH Obsidian Sync - DSH Cordis plugin: on-demand Obsidian knowledge-base search + DSH session archiving (PARA rules) + per-turn live brain retrieval/injection and real-time distilled memory updates",
   "type": "module",
   "main": "./lib/index.js",
@@ -21,7 +21,8 @@
     "src",
     "cordis.patch.yml",
     "README.md",
-    "RELEASE_NOTES_v4.0.1.md"
+    "RELEASE_NOTES_v4.0.1.md",
+    "RELEASE_NOTES_v4.0.2.md"
   ],
   "engines": {
     "dsh": ">=0.2.0-rc.1 <0.3.0-0"
