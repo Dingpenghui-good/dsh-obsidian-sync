@@ -211,7 +211,25 @@ export function apply(ctx: Context): void {
   const fs = ctx.fs as unknown as FileSystem
   // 0.2.0-rc.1 不再提供 ctx.timer 服务；改用 Node 原生 setInterval，
   // 通过 ctx.effect 的清理函数保证插件卸载时定时器被清除。
-  const index = new Map<string, { displayPath: string; tokens: Set<string>; snippet: string; size: number; version: string }>()
+  /**
+   * 倒排索引。key 是 vault 相对路径（正斜杠，如 `02-Projects/xxx.md`），
+   * 因此不随 vault 根目录或平台变化；`displayPath` 保留后端给出的原始绝对
+   * 路径，只用于 `fs.resolve` 与对外展示的可追溯信息。
+   *
+   * 目录分层判定（02-Projects / 04-Archive …）必须用 `relPath`：Windows 上
+   * `displayPath` 是反斜杠绝对路径，`includes('04-Archive/')` 永远为假。
+   */
+  interface IndexEntry {
+    /** vault 相对路径（正斜杠）；分层判定与对外展示用。 */
+    relPath: string
+    /** 后端原始绝对路径（可能含盘符与反斜杠）；仅供 fs.resolve。 */
+    displayPath: string
+    tokens: Set<string>
+    snippet: string
+    size: number
+    version: string
+  }
+  const index = new Map<string, IndexEntry>()
   let dirty = true
   let refreshing = false
 
@@ -263,8 +281,8 @@ export function apply(ctx: Context): void {
         const entries = await fs.listDir(dir)
         for (const e of entries) {
           if (e.type !== 'file' || e.name === undefined || !e.name.endsWith('.md')) continue
-          const known = [...index.keys()].some(k => k.endsWith('/' + e.name) || k === sub + '/' + e.name)
-          if (!known) {
+          // 索引 key 是 vault 相对路径（正斜杠），直接拼出该文件的相对路径比较。
+          if (!index.has(sub + '/' + e.name)) {
             dirty = true
             return
           }
@@ -351,8 +369,10 @@ export function apply(ctx: Context): void {
               // 索引吃全文（~46 篇 × 几 KB，内存无压力），不再只取前 600 字
               const tokens = tokenize('\n' + entry.name + '\n' + text)
               const displayPath = entry.target && typeof entry.target === 'object' ? entry.target.displayPath : String(entry.target ?? '')
+              const relPath = vaultRelativePath(displayPath)
               const stat = await fs.stat(entry.target)
-              next.set(displayPath, {
+              next.set(relPath, {
+                relPath,
                 displayPath,
                 tokens,
                 snippet: text.slice(0, 240),
@@ -399,9 +419,9 @@ export function apply(ctx: Context): void {
     }, 'obsidian-sync: index refresh')
   }
 
-  function searchMatches(topic: string, limit: number): Array<{ file: string; score: number; snippet: string; size: number; matchReason: string }> {
+  function searchMatches(topic: string, limit: number): Array<{ file: string; displayPath: string; score: number; snippet: string; size: number; matchReason: string }> {
     const topicTokens = tokenize(topic)
-    const results: Array<{ file: string; score: number; snippet: string; size: number; matchReason: string }> = []
+    const results: Array<{ file: string; displayPath: string; score: number; snippet: string; size: number; matchReason: string }> = []
     for (const entry of index.values()) {
       let score = 0
       const matchedKeywords: string[] = []
@@ -413,7 +433,11 @@ export function apply(ctx: Context): void {
       }
       if (score === 0) continue
       results.push({
-        file: entry.displayPath,
+        // `file` 用 vault 相对路径：它既能直接喂给 obsidian_read_note（该工具
+        // 按相对路径解析），也不会因 vault 根目录变化而失效。绝对路径另给
+        // displayPath，保留可追溯性。
+        file: entry.relPath,
+        displayPath: entry.displayPath,
         score: Math.round(score * 100) / 100,
         snippet: entry.snippet,
         size: entry.size,
@@ -450,12 +474,11 @@ export function apply(ctx: Context): void {
   function snapshotBrainNotes(): BrainNote[] {
     const notes: BrainNote[] = []
     for (const entry of index.values()) {
-      const path = vaultRelativePath(entry.displayPath)
       notes.push({
-        path,
+        path: entry.relPath,
         displayPath: entry.displayPath,
         tokens: entry.tokens,
-        title: path.split('/').pop() ?? path,
+        title: entry.relPath.split('/').pop() ?? entry.relPath,
         snippet: entry.snippet,
         size: entry.size,
       })
@@ -531,10 +554,11 @@ export function apply(ctx: Context): void {
       // 1. 汇总当天归档
       const todayFiles: Array<{ file: string; date: string; snippet: string }> = []
       for (const entry of index.values()) {
-        if (!entry.displayPath.includes('04-Archive/')) continue
-        const m = entry.displayPath.match(new RegExp('^.*?(\\d{4}-\\d{2}-\\d{2})'))
+        // 用相对路径判定：displayPath 在 Windows 上是反斜杠绝对路径。
+        if (!entry.relPath.startsWith('04-Archive/')) continue
+        const m = entry.relPath.match(new RegExp('^.*?(\\d{4}-\\d{2}-\\d{2})'))
         if (m && m[1] === dateStr) {
-          todayFiles.push({ file: entry.displayPath, date: dateStr, snippet: entry.snippet })
+          todayFiles.push({ file: entry.relPath, date: dateStr, snippet: entry.snippet })
         }
       }
       if (todayFiles.length === 0) return
@@ -614,10 +638,11 @@ export function apply(ctx: Context): void {
       // 汇总本周归档（文件名日期 >= 周一 且 <= 今天）
       const weekFiles: Array<{ file: string; date: string; snippet: string }> = []
       for (const entry of index.values()) {
-        if (!entry.displayPath.includes('04-Archive/')) continue
-        const m = entry.displayPath.match(/(\d{4}-\d{2}-\d{2})/)
+        // 用相对路径判定：displayPath 在 Windows 上是反斜杠绝对路径。
+        if (!entry.relPath.startsWith('04-Archive/')) continue
+        const m = entry.relPath.match(/(\d{4}-\d{2}-\d{2})/)
         if (m && m[1] >= monday && m[1] <= now.toISOString().slice(0, 10)) {
-          weekFiles.push({ file: entry.displayPath, date: m[1], snippet: entry.snippet })
+          weekFiles.push({ file: entry.relPath, date: m[1], snippet: entry.snippet })
         }
       }
       weekFiles.sort((a, b) => a.date.localeCompare(b.date))
@@ -711,13 +736,14 @@ export function apply(ctx: Context): void {
     const taskTokens = task.trim().length > 0 ? tokenize(task) : new Set<string>()
     const results: Array<{ file: string; title: string; score: number; snippet: string }> = []
     for (const entry of index.values()) {
-      if (!distilledDirs.some(d => entry.displayPath.includes(d))) continue
+      // 用 vault 相对路径判定分层：displayPath 在 Windows 上是反斜杠绝对路径。
+      if (!distilledDirs.some(d => entry.relPath.startsWith(d))) continue
       let score = 0
       for (const t of taskTokens) {
         if (entry.tokens.has(t)) score += idfTable.get(t) ?? 1
       }
-      const title = entry.displayPath.split('/').pop() ?? entry.displayPath
-      results.push({ file: entry.displayPath, title, score: taskTokens.size > 0 ? Math.round(score * 100) / 100 : 0, snippet: entry.snippet })
+      const title = entry.relPath.split('/').pop() ?? entry.relPath
+      results.push({ file: entry.relPath, title, score: taskTokens.size > 0 ? Math.round(score * 100) / 100 : 0, snippet: entry.snippet })
     }
     results.sort((a, b) => b.score - a.score || a.title.localeCompare(b.title))
     return results.slice(0, limit)
@@ -727,9 +753,9 @@ export function apply(ctx: Context): void {
   function recentArchives(limit: number): Array<{ file: string; date: string; snippet: string }> {
     const results: Array<{ file: string; date: string; snippet: string }> = []
     for (const entry of index.values()) {
-      if (!entry.displayPath.includes('04-Archive/')) continue
-      const dateMatch = entry.displayPath.match(/(\d{4}-\d{2}-\d{2})/)
-      results.push({ file: entry.displayPath, date: dateMatch ? dateMatch[1] : 'unknown', snippet: entry.snippet })
+      if (!entry.relPath.startsWith('04-Archive/')) continue
+      const dateMatch = entry.relPath.match(/(\d{4}-\d{2}-\d{2})/)
+      results.push({ file: entry.relPath, date: dateMatch ? dateMatch[1] : 'unknown', snippet: entry.snippet })
     }
     results.sort((a, b) => b.date.localeCompare(a.date))
     return results.slice(0, limit)
@@ -850,8 +876,8 @@ export function apply(ctx: Context): void {
         // 3. 用户决策习惯与偏好页（03-Areas 下，如果存在）
         let userProfile = ''
         const profileRelPath = '03-Areas/决策习惯与偏好.md'
-        const hasProfile = [...index.values()].some(e => e.displayPath === profileRelPath)
-        if (hasProfile) {
+        // 索引 key 就是相对路径：直接查 Map，不再比较绝对 displayPath。
+        if (index.has(profileRelPath)) {
           userProfile = await readFileContent(profileRelPath)
         }
 
