@@ -44,6 +44,16 @@ interface Config {
   brainAutoCommit: boolean;
   /** 流水页单节大小上限（字节，8192..2000000）。 */
   brainLogCapBytes: number;
+  /** 会话结束（静默/释放）后自动归档到 vault（v4.1.0，默认开）。 */
+  autoArchive: boolean;
+  /** 静默多久视为「会话结束」（毫秒，60000..3600000，默认 900000=15 分钟）。 */
+  autoArchiveIdleMs: number;
+  /** 至少多少条用户消息才自动归档（默认 1，跳过空会话）。 */
+  autoArchiveMinUserMessages: number;
+  /** 自动归档总结所用 provider（留空跟随当前路由）。 */
+  autoArchiveProvider: string;
+  /** 自动归档总结所用 model（留空跟随当前路由）。 */
+  autoArchiveModel: string;
 }
 /**
  * Schemastery 配置 schema：加载器用它解析行 `config` 并补默认值。
@@ -70,6 +80,11 @@ declare const Config: z<Schemastery.ObjectS<NoInfer<{
   brainPinnedBudget: z<number, number, "volatile-defined">;
   brainAutoCommit: z<boolean, boolean, "volatile-defined">;
   brainLogCapBytes: z<number, number, "volatile-defined">;
+  autoArchive: z<boolean, boolean, "volatile-defined">;
+  autoArchiveIdleMs: z<number, number, "volatile-defined">;
+  autoArchiveMinUserMessages: z<number, number, "volatile-defined">;
+  autoArchiveProvider: z<string, string, "volatile-defined">;
+  autoArchiveModel: z<string, string, "volatile-defined">;
 }>>, Schemastery.ObjectT<NoInfer<{
   vaultPath: z<string, string, "volatile-defined">;
   searchEnabled: z<boolean, boolean, "volatile-defined">;
@@ -87,6 +102,11 @@ declare const Config: z<Schemastery.ObjectS<NoInfer<{
   brainPinnedBudget: z<number, number, "volatile-defined">;
   brainAutoCommit: z<boolean, boolean, "volatile-defined">;
   brainLogCapBytes: z<number, number, "volatile-defined">;
+  autoArchive: z<boolean, boolean, "volatile-defined">;
+  autoArchiveIdleMs: z<number, number, "volatile-defined">;
+  autoArchiveMinUserMessages: z<number, number, "volatile-defined">;
+  autoArchiveProvider: z<string, string, "volatile-defined">;
+  autoArchiveModel: z<string, string, "volatile-defined">;
 }>>, "plain">;
 declare function apply(ctx: Context): void;
 //#endregion

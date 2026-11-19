@@ -42,6 +42,7 @@ import z from '@deepseek-ai/schemastery'
 // 详见 RELEASE_NOTES_v3.4.4.md。
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import type { FileSystem, FsDirEntry, FsTarget } from '@deepseek-ai/dsh-fs'
+import type { Session } from '@deepseek-ai/dsh-session'
 import type { SandboxExecutionPolicy } from '@deepseek-ai/dsh-sandbox'
 import type { JsonValue } from '@deepseek-ai/dsh-util-values'
 import type { BrainHit, BrainNote } from './brain-core.ts'
@@ -98,6 +99,16 @@ export interface Config {
   brainAutoCommit: boolean
   /** 流水页单节大小上限（字节，8192..2000000）。 */
   brainLogCapBytes: number
+  /** 会话结束（静默/释放）后自动归档到 vault（v4.1.0，默认开）。 */
+  autoArchive: boolean
+  /** 静默多久视为「会话结束」（毫秒，60000..3600000，默认 900000=15 分钟）。 */
+  autoArchiveIdleMs: number
+  /** 至少多少条用户消息才自动归档（默认 1，跳过空会话）。 */
+  autoArchiveMinUserMessages: number
+  /** 自动归档总结所用 provider（留空跟随当前路由）。 */
+  autoArchiveProvider: string
+  /** 自动归档总结所用 model（留空跟随当前路由）。 */
+  autoArchiveModel: string
 }
 
 /**
@@ -125,6 +136,11 @@ export const Config = z.object({
   brainPinnedBudget: z.number().step(1).min(0).max(5).default(2).volatile(),
   brainAutoCommit: z.boolean().default(false).volatile(),
   brainLogCapBytes: z.number().step(1).min(8192).max(2_000_000).default(200_000).volatile(),
+  autoArchive: z.boolean().default(true).volatile(),
+  autoArchiveIdleMs: z.number().step(1000).min(60_000).max(3_600_000).default(900_000).volatile(),
+  autoArchiveMinUserMessages: z.number().step(1).min(1).max(100).default(1).volatile(),
+  autoArchiveProvider: z.string().default('').volatile(),
+  autoArchiveModel: z.string().default('').volatile(),
 })
 
 export function apply(ctx: Context): void {
@@ -207,6 +223,26 @@ export function apply(ctx: Context): void {
 
   let searchEnabled = readSearchEnabled()
   const refreshMs = Math.max(readIndexRefreshMs(), 5000)
+
+  /** 自动归档配置（每次调用重读，保存后即时生效）。 */
+  const readArchiveOptions = (): {
+    enabled: boolean
+    idleMs: number
+    minUserMessages: number
+    provider: string
+    model: string
+  } => {
+    const s = readSection()
+    const bool = (v: unknown, fallback: boolean): boolean => (typeof v === 'boolean' ? v : fallback)
+    const text = (v: unknown): string => (typeof v === 'string' ? v.trim() : '')
+    return {
+      enabled: bool(s?.autoArchive, true),
+      idleMs: Math.floor(clampNumber(s?.autoArchiveIdleMs, 900_000, 60_000, 3_600_000)),
+      minUserMessages: Math.floor(clampNumber(s?.autoArchiveMinUserMessages, 1, 1, 100)),
+      provider: text(s?.autoArchiveProvider),
+      model: text(s?.autoArchiveModel),
+    }
+  }
 
   const fs = ctx.fs as unknown as FileSystem
   // 0.2.0-rc.1 不再提供 ctx.timer 服务；改用 Node 原生 setInterval，
@@ -730,6 +766,156 @@ export function apply(ctx: Context): void {
     }
   }
 
+  /**
+   * 共享归档写入：`obsidian_sync_session` 工具与「会话结束自动归档」共用。
+   * 幂等键 = date + shortId；摘要未变则跳过；成功后挂索引并 git commit+push。
+   */
+  async function writeArchiveNote(input: {
+    sessionId: string
+    title: string
+    summary: string
+    tags: string[]
+    related: string[]
+    rawLog: string
+    date?: string
+  }): Promise<Record<string, unknown>> {
+    const sessionId = String(input.sessionId ?? 'unknown')
+    const title = String(input.title ?? '')
+    const safeTitle = sanitizeTitleForFilename(title)
+    const summary = String(input.summary ?? '')
+    const tags = input.tags.slice(0, 10)
+    const related = input.related.slice(0, 10)
+    const rawLog = String(input.rawLog ?? '')
+
+    // 噪声会话过滤：身份测试类 + 摘要极短 → 不写笔记不进索引
+    if (isNoiseSession(title, summary)) {
+      return { ok: true, skipped: true, noise: true, reason: 'identity-test noise session filtered out (short title + short summary)', index: 'unchanged' }
+    }
+
+    // 归档日期：优先采用调用方传入的 date（用于回填历史会话），未传或格式非法时回退当前 UTC 日期。
+    const rawDate = String(input.date ?? '').trim()
+    const dateStr = /^\d{4}-\d{2}-\d{2}$/.test(rawDate) ? rawDate : new Date().toISOString().slice(0, 10)
+    const shortId = normalizeShortId(sessionId)
+
+    // 幂等键 = date + shortId（标题不参与路径），写入前按前缀探测已存在文件并原地覆盖
+    const entryPrefix = dateStr + '-' + shortId + '-'
+    let entryRelPath: string
+
+    try {
+      const archiveDir = await fs.resolve(currentVaultPath() + '/04-Archive')
+      const archiveEntries = await fs.listDir(archiveDir)
+      const existing = archiveEntries.find(e => e.type === 'file' && e.name?.startsWith(entryPrefix))
+      if (existing !== undefined && existing.name !== undefined) {
+        entryRelPath = '04-Archive/' + existing.name
+      } else {
+        entryRelPath = '04-Archive/' + entryPrefix + safeTitle + '.md'
+      }
+    } catch (_e) {
+      entryRelPath = '04-Archive/' + entryPrefix + safeTitle + '.md'
+    }
+
+    // related 双链：生成全路径 [[04-Archive/xxx.md|显示名]]，写入前校验目标存在
+    const relatedLines: string[] = []
+    for (const r of related) {
+      const rFull = r.endsWith('.md') ? r : r + '.md'
+      const rRel = '04-Archive/' + rFull
+      try {
+        await fs.stat(await fs.resolve(currentVaultPath() + '/' + rRel))
+        relatedLines.push('- [[' + rRel + '|' + rFull.replace(/^.*\//, '').replace(/\.md$/, '') + ']]')
+      } catch (_e) {
+        relatedLines.push('- ' + rFull + '（未找到，降级为文字引用）')
+      }
+    }
+
+    // 生成 YAML frontmatter（Obsidian 原生标签 / Dataview 可查）
+    const fmSessionId = sessionId.replace(/[^A-Za-z0-9-]/g, '').slice(0, 8)
+    const frontmatter = [
+      '---',
+      'session_id: ' + fmSessionId,
+      'full_session_id: ' + sessionId,
+      'date: ' + dateStr,
+      'tags: [' + tags.join(', ') + ']',
+      '---',
+      '',
+    ].join('\n')
+
+    const logLine = rawLog.trim().length > 0
+      ? '> 📎 原始日志: `' + rawLog.trim() + '`\n\n> 由 DSH Obsidian Sync 自动同步\n'
+      : '> 由 DSH Obsidian Sync 自动同步\n'
+
+    const content = frontmatter
+      + '# DSH 会话: ' + title + '\n\n'
+      + '## 基本信息\n\n'
+      + '| 属性 | 值 |\n|------|-----|\n'
+      + '| **日期** | ' + dateStr + ' |\n'
+      + '| **会话ID** | `' + sessionId + '` |\n'
+      + '| **状态** | ✅ 已归档 |\n'
+      + '| **分类** | ' + (tags.length > 0 ? tags.join(' ') : '通用') + ' |\n\n'
+      + '---\n\n'
+      + '## 摘要\n\n' + summary + '\n\n'
+      + (relatedLines.length > 0 ? '## 关联\n\n' + relatedLines.join('\n') + '\n\n---\n' : '')
+      + logLine
+
+    let target: FsTarget
+    try {
+      target = await fs.resolve(currentVaultPath() + '/' + entryRelPath)
+    } catch (_e) {
+      const winPath = currentVaultPath() + '\\' + entryRelPath.split('/').join('\\')
+      try { target = await fs.resolve(winPath) } catch (_e2) { return { ok: false, error: 'cannot resolve vault entry path', code: 'RESOLVE_FAILED' } }
+    }
+
+    let skipped = false
+    try {
+      const prev = String(await fs.readText(target))
+      const marker = '## 摘要'
+      const pos = prev.indexOf(marker)
+      if (pos >= 0) {
+        const bodyStart = pos + marker.length
+        const boundaries = ['\n## ', '\n---\n', '\n\n> ']
+          .map(sep => prev.indexOf(sep, bodyStart))
+          .filter(i => i !== -1)
+        const bodyEnd = boundaries.length > 0 ? Math.min(...boundaries) : prev.length
+        if (prev.slice(bodyStart, bodyEnd).trim() === summary.trim()) skipped = true
+      }
+    } catch (_e) { /* 尚不存在 */ }
+    if (skipped) return { ok: true, skipped: true, file: entryRelPath, reason: 'summary unchanged', index: 'unchanged' }
+
+    try {
+      await fs.writeText(target, content, undefined, undefined, widePolicy)
+    } catch (writeErr) {
+      return { ok: false, error: 'writeText failed: ' + String(writeErr instanceof Error ? writeErr.message : writeErr), code: 'WRITE_FAILED' }
+    }
+
+    const indexOk = await updateIndexFile(entryRelPath, title, sessionId, dateStr)
+    dirty = true
+
+    // 写入成功后自动 git commit + push（vault 有 remote 时才生效）
+    let gitStatus = 'skipped'
+    try {
+      const { execSync } = await import('node:child_process')
+      const out = execSync('git add -A && git status --porcelain', {
+        cwd: currentVaultPath(),
+        timeout: 15000,
+        encoding: 'utf-8',
+      })
+      if (out.trim().length > 0) {
+        const msg = 'archive: ' + entryRelPath.replace(/^04-Archive\//, '')
+        execSync('git commit -m "' + msg.replace(/"/g, '\\"') + '" && git push', {
+          cwd: currentVaultPath(),
+          timeout: 60000,
+          encoding: 'utf-8',
+        })
+        gitStatus = 'pushed'
+      } else {
+        gitStatus = 'no changes'
+      }
+    } catch (gitErr) {
+      gitStatus = 'failed: ' + String(gitErr instanceof Error ? gitErr.message : gitErr)
+    }
+
+    return { ok: true, skipped: false, file: entryRelPath, index: indexOk ? 'updated' : 'skipped', git: gitStatus }
+  }
+
   /** 从索引中按目录前缀过滤 + 按 task 相关性取 top N 提炼页。 */
   function topDistilled(task: string, limit: number): Array<{ file: string; title: string; score: number; snippet: string }> {
     const distilledDirs = ['02-Projects/', '03-Areas/', '05-Resources/']
@@ -824,6 +1010,261 @@ export function apply(ctx: Context): void {
         return {}
       }
     },
+  })
+
+  // -------------------------------------------------------------------------
+  // v4.1.0 自动归档：会话静默超时或释放时，把整个会话蒸馏成 04-Archive 笔记。
+  // 双通道：
+  //   1) agent/turn-stopping 每次轮结束后重置 idle 计时器，静默 autoArchiveIdleMs 后归档；
+  //   2) session/disposed 时立即尽力归档（切换 / 关闭 / 进程退出前的释放）。
+  // 幂等：同一会话内容指纹未变则跳过；writeArchiveNote 本身也按摘要去重。
+  // -------------------------------------------------------------------------
+
+  /** 当前活动 agent 的路由（provider/model），用于跟随当前模型调用摘要。 */
+  const currentAgentRoute = (): { provider?: string; model?: string } => {
+    try {
+      const agents = ctx.get('agents') as {
+        list?: () => Array<{ options?: { provider?: string; model?: string } }>
+        roots?: () => Array<{ options?: { provider?: string; model?: string } }>
+      } | undefined
+      const active = agents?.list?.() ?? []
+      const first = active[0] ?? agents?.roots?.()[0]
+      return { provider: first?.options?.provider, model: first?.options?.model }
+    } catch (_e) {
+      return {}
+    }
+  }
+
+  /** 消息 content → 纯文本（只取 text part）。 */
+  function autoArchiveMessageText(content: unknown): string {
+    if (typeof content === 'string') return content
+    if (!Array.isArray(content)) return ''
+    const parts: string[] = []
+    for (const part of content) {
+      if (part === null || typeof part !== 'object') continue
+      const item = part as { type?: unknown; text?: unknown }
+      if (item.type === 'text' && typeof item.text === 'string') parts.push(item.text)
+    }
+    return parts.join('\n')
+  }
+
+  /** 启动期 / 系统注入的消息前缀（不算用户真实输入）。 */
+  const AUTO_ARCHIVE_NOISE_PREFIXES = [
+    '【长期约束', 'Current runtime context', 'Time sampled',
+    'This is an automatically generated checkpoint', '[model changed',
+    '<system-reminder>', '【知识库记忆',
+  ]
+
+  /** 提取用户真实输入与助手可见结论。 */
+  function autoArchiveDialogue(session: Session): { user: string[]; assistant: string[] } {
+    let messages: Array<{ role?: string; content?: unknown }> = []
+    try {
+      messages = session.deriveMessages() as unknown as Array<{ role?: string; content?: unknown }>
+    } catch (_e) {
+      return { user: [], assistant: [] }
+    }
+    const user: string[] = []
+    const assistant: string[] = []
+    for (const m of messages) {
+      const text = autoArchiveMessageText(m.content).trim()
+      if (text.length === 0) continue
+      if (m.role === 'user') {
+        if (AUTO_ARCHIVE_NOISE_PREFIXES.some(p => text.startsWith(p))) continue
+        user.push(text)
+      } else if (m.role === 'assistant') {
+        assistant.push(text)
+      }
+    }
+    return { user, assistant }
+  }
+
+  /** 会话标题：优先会话 header 标题，其次首条用户消息首行。 */
+  function autoArchiveTitle(session: Session, user: readonly string[]): string {
+    let title = ''
+    try {
+      const header = session.header as unknown as { title?: unknown }
+      if (typeof header.title === 'string') title = header.title.trim()
+    } catch (_e) { /* 忽略 */ }
+    if (title.length > 0) return title.slice(0, 40)
+    const first = user[0] ?? ''
+    const line = first.split('\n').map(s => s.trim()).find(s => s.length > 0) ?? ''
+    return line.slice(0, 40) || '会话'
+  }
+
+  /** 启发式摘要（无 LLM 时兜底）。 */
+  function autoArchiveFallbackSummary(user: readonly string[], assistant: readonly string[]): string {
+    const need = user.length > 0 ? user[0].slice(0, 300) : '（未记录用户输入）'
+    const last = assistant.length > 0 ? assistant[assistant.length - 1].slice(-700) : '（未记录助手结论）'
+    return '用户需求：' + need + '\n\n过程：' + user.length + ' 轮用户输入 / ' + assistant.length + ' 条助手回复。\n\n结论：' + last
+  }
+
+  /** 会话内容指纹：用户输入条数 + 总长度 + 最后一条助手文本长度。 */
+  function autoArchiveFingerprint(dialogue: { user: readonly string[]; assistant: readonly string[] }): string {
+    return dialogue.user.length + ':' + dialogue.user.join('').length + ':' + (dialogue.assistant.at(-1)?.length ?? 0)
+  }
+
+  /** 用 LLM 生成 { title, summary, tags }；失败返回 undefined 由调用方兜底。 */
+  async function autoArchiveLlmSummary(
+    session: Session,
+    dialogue: { user: readonly string[]; assistant: readonly string[] },
+    opts: { provider: string; model: string },
+  ): Promise<{ title: string; summary: string; tags: string[] } | undefined> {
+    const llm = ctx.get('llm') as
+      | { stream: (options: unknown) => AsyncIterable<{ type?: string; text?: string }> }
+      | undefined
+    if (llm === undefined) return undefined
+    const route = currentAgentRoute()
+    const provider = opts.provider.length > 0 ? opts.provider : (route.provider ?? '')
+    const model = opts.model.length > 0 ? opts.model : (route.model ?? '')
+    if (provider.length === 0 || model.length === 0) return undefined
+    const userText = dialogue.user.join('\n---\n').slice(0, 4000)
+    const assistantText = dialogue.assistant.slice(-3).join('\n---\n').slice(-4000)
+    const prompt = [
+      '你是知识库的「会话归档器」。把下面这段 DSH 会话压缩成一篇可长期检索的归档摘要。',
+      '',
+      '【会话标题】' + autoArchiveTitle(session, dialogue.user),
+      '',
+      '【用户输入】',
+      userText,
+      '',
+      '【助手结论（末尾片段）】',
+      assistantText,
+      '',
+      '【输出要求】只输出一个 JSON 对象，不要解释或 Markdown 围栏：',
+      '- title: 一句话主题，≤ 40 字',
+      '- summary: 结论/要点，200~800 字，写清用户需求、关键过程、最终结论/交付物；未完成要写明',
+      '- tags: 标签数组（3~8 个，中文优先）',
+      '',
+      '今天日期：' + new Date().toISOString().slice(0, 10),
+    ].join('\n')
+    let text = ''
+    try {
+      for await (const chunk of llm.stream({
+        provider,
+        model,
+        messages: [{ role: 'user', content: [{ type: 'text', text: prompt }] }],
+        maxTokens: 1200,
+      })) {
+        if (chunk.type === 'text-delta' && typeof chunk.text === 'string') text += chunk.text
+      }
+    } catch (_e) {
+      return undefined
+    }
+    text = text.trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '')
+    const start = text.indexOf('{')
+    const end = text.lastIndexOf('}')
+    if (start < 0 || end <= start) return undefined
+    try {
+      const parsed = JSON.parse(text.slice(start, end + 1)) as { title?: unknown; summary?: unknown; tags?: unknown }
+      const title = typeof parsed.title === 'string' && parsed.title.trim().length > 0 ? parsed.title.trim().slice(0, 40) : ''
+      const summary = typeof parsed.summary === 'string' ? parsed.summary.trim() : ''
+      if (title.length === 0 || summary.length === 0) return undefined
+      const tags = Array.isArray(parsed.tags) ? parsed.tags.map(String).filter(t => t.length > 0).slice(0, 8) : []
+      return { title, summary, tags }
+    } catch (_e) {
+      return undefined
+    }
+  }
+
+  /** 会话 → 原始日志路径（尽力估算；拼不出时返回空串）。 */
+  function autoArchiveRawLog(session: Session, sessionId: string): string {
+    try {
+      const header = session.header as unknown as { cwd?: unknown }
+      const cwd = typeof header.cwd === 'string' ? header.cwd : ''
+      if (cwd.length === 0) return ''
+      const dir = '--' + cwd.replace(/[:\\/]/g, '-') + '--'
+      const safeId = sessionId.startsWith('session-') ? sessionId : 'session-' + sessionId
+      const user = process.env.USERNAME ?? 'dph'
+      return 'C:/Users/' + user + '/.dsh/sessions/' + dir + '/' + safeId + '/session.v4.jsonl.zstd'
+    } catch (_e) {
+      return ''
+    }
+  }
+
+  /** 已归档指纹（避免同一会话重复归档相同内容）。 */
+  const autoArchiveFingerprints = new Map<string, string>()
+  /** 每个 session 的 idle 计时器。 */
+  const autoArchiveTimers = new Map<string, ReturnType<typeof setTimeout>>()
+  /** 同一时间只跑一个归档任务，避免 LLM / 写盘并发。 */
+  let autoArchiveBusy = false
+
+  /** 归档单个会话（幂等；失败静默）。 */
+  async function autoArchiveSession(session: Session, reason: 'idle' | 'disposed'): Promise<void> {
+    const options = readArchiveOptions()
+    if (!options.enabled) return
+    if (session === undefined || session === null) return
+    const depth = Number((session.header as unknown as { delegationDepth?: unknown }).delegationDepth ?? 0)
+    if (depth > 0) return // 子代理会话不单独归档
+    const dialogue = autoArchiveDialogue(session)
+    if (dialogue.user.length < options.minUserMessages) return
+    const sessionId = String((session as unknown as { id?: unknown }).id ?? '')
+    if (sessionId.length === 0) return
+
+    const fingerprint = autoArchiveFingerprint(dialogue)
+    if (autoArchiveFingerprints.get(sessionId) === fingerprint) return
+    if (autoArchiveBusy) return
+    autoArchiveBusy = true
+    try {
+      const fallbackTitle = autoArchiveTitle(session, dialogue.user)
+      const llmSummary = await autoArchiveLlmSummary(session, dialogue, { provider: options.provider, model: options.model })
+      const title = llmSummary !== undefined ? llmSummary.title : fallbackTitle
+      const summary = llmSummary !== undefined ? llmSummary.summary : autoArchiveFallbackSummary(dialogue.user, dialogue.assistant)
+      const tags = llmSummary !== undefined && llmSummary.tags.length > 0
+        ? ['Obsidian归档', ...llmSummary.tags].slice(0, 10)
+        : ['Obsidian归档', '自动归档']
+      const result = await writeArchiveNote({
+        sessionId,
+        title,
+        summary,
+        tags,
+        related: [],
+        rawLog: autoArchiveRawLog(session, sessionId),
+        date: new Date().toISOString().slice(0, 10),
+      })
+      if (result.ok === true) autoArchiveFingerprints.set(sessionId, fingerprint)
+      ctx.logger.info('[obsidian-sync] auto archive (' + reason + '): ' + sessionId + ' → ' + JSON.stringify(result))
+    } catch (error) {
+      ctx.logger.warn('[obsidian-sync] auto archive failed: ' + String(error instanceof Error ? error.message : error))
+    } finally {
+      autoArchiveBusy = false
+    }
+  }
+
+  /** 重置某个会话的静默计时器；到期后归档。 */
+  function scheduleAutoArchive(agent: { id?: string; session: Session }): void {
+    const options = readArchiveOptions()
+    if (!options.enabled) return
+    const session = agent.session
+    if (session === undefined || session === null) return
+    const key = String((agent as unknown as { id?: unknown }).id ?? (session as unknown as { id?: unknown }).id ?? '')
+    if (key.length === 0) return
+    const existing = autoArchiveTimers.get(key)
+    if (existing !== undefined) clearTimeout(existing)
+    const timer = setTimeout(() => {
+      autoArchiveTimers.delete(key)
+      void autoArchiveSession(session, 'idle')
+    }, options.idleMs)
+    // 不让定时器拖住进程退出
+    try {
+      const maybeUnref = timer as unknown as { unref?: () => void }
+      if (typeof maybeUnref.unref === 'function') maybeUnref.unref()
+    } catch (_e) { /* 忽略 */ }
+    autoArchiveTimers.set(key, timer)
+  }
+
+  // 会话释放（切换 / 关闭 / 进程退出前的释放）→ 立即尽力归档
+  ctx.on('session/disposed', (session: Session) => {
+    const options = readArchiveOptions()
+    if (!options.enabled) return
+    const key = String((session as unknown as { id?: unknown }).id ?? '')
+    const timer = autoArchiveTimers.get(key)
+    if (timer !== undefined) { clearTimeout(timer); autoArchiveTimers.delete(key) }
+    void autoArchiveSession(session, 'disposed')
+  }, { global: true } as never)
+
+  // 每轮结束时重置静默计时器（brain 的同名监听器负责检索注入 / 沉淀，这里只管归档计时）
+  ctx.on('agent/turn-stopping', (payload: { agent: { id?: string; session: Session } }) => {
+    scheduleAutoArchive(payload.agent as never)
   })
 
   // 工具名必须匹配模型 provider 的 function-name 约束 ^[a-zA-Z0-9_-]+$。
@@ -1013,149 +1454,16 @@ export function apply(ctx: Context): void {
       render: (_args, value) => [{ type: 'text', text: JSON.stringify(value, null, 2) }],
     },
     async execute(args) {
-      const sessionId = String(args.session_id ?? 'unknown')
-      const title = String(args.title ?? '')
-      const safeTitle = sanitizeTitleForFilename(title)
-      const summary = String(args.summary ?? '')
-      const tags = Array.isArray(args.tags) ? args.tags.map(String).slice(0, 10) : []
-      const related = Array.isArray(args.related) ? args.related.map(String).slice(0, 10) : []
-      const rawLog = String(args.raw_log ?? '')
-
-      // 噪声会话过滤：身份测试类 + 摘要极短 → 不写笔记不进索引
-      if (isNoiseSession(title, summary)) {
-        return asJsonValue({ ok: true, skipped: true, noise: true, reason: 'identity-test noise session filtered out (short title + short summary)', index: 'unchanged' })
-      }
-
-      // 归档日期：优先采用调用方传入的 date（用于回填历史会话），未传或格式非法时回退当前 UTC 日期。
-      // dateStr 单一来源：文件名前缀 / frontmatter date / 基本信息表格 / 索引行日期段全部沿用它。
-      const rawDate = String(args.date ?? '').trim()
-      const dateStr = /^\d{4}-\d{2}-\d{2}$/.test(rawDate) ? rawDate : new Date().toISOString().slice(0, 10)
-      const shortId = normalizeShortId(sessionId)
-
-      // 幂等键 = date + shortId（标题不参与路径），写入前按前缀探测已存在文件并原地覆盖
-      const entryPrefix = dateStr + '-' + shortId + '-'
-      let entryRelPath: string
-
-      // 探测 04-Archive/ 下是否已有同前缀文件（同会话多次同步）
-      try {
-        const archiveDir = await fs.resolve(currentVaultPath() + '/04-Archive')
-        const archiveEntries = await fs.listDir(archiveDir)
-        const existing = archiveEntries.find(e => e.type === 'file' && e.name?.startsWith(entryPrefix))
-        if (existing !== undefined && existing.name !== undefined) {
-          // 已有文件：原地覆盖（标题可能变了但幂等键不变）
-          entryRelPath = '04-Archive/' + existing.name
-        } else {
-          entryRelPath = '04-Archive/' + entryPrefix + safeTitle + '.md'
-        }
-      } catch (_e) {
-        entryRelPath = '04-Archive/' + entryPrefix + safeTitle + '.md'
-      }
-
-      // related 双链：生成全路径 [[04-Archive/xxx.md|显示名]]，写入前校验目标存在
-      const relatedLines: string[] = []
-      for (const r of related) {
-        const rFull = r.endsWith('.md') ? r : r + '.md'
-        const rRel = '04-Archive/' + rFull
-        // 校验目标存在（全路径双链）
-        try {
-          await fs.stat(await fs.resolve(currentVaultPath() + '/' + rRel))
-          relatedLines.push('- [[' + rRel + '|' + rFull.replace(/^.*\//, '').replace(/\.md$/, '') + ']]')
-        } catch (_e) {
-          relatedLines.push('- ' + rFull + '（未找到，降级为文字引用）')
-        }
-      }
-
-      // 生成 YAML frontmatter（Obsidian 原生标签 / Dataview 可查）
-      const fmDate = dateStr
-      const fmSessionId = sessionId.replace(/[^A-Za-z0-9-]/g, '').slice(0, 8)
-      const fmTags = tags.length > 0 ? tags : []
-      const frontmatter = [
-        '---',
-        'session_id: ' + fmSessionId,
-        'full_session_id: ' + sessionId,
-        'date: ' + fmDate,
-        'tags: [' + fmTags.join(', ') + ']',
-        '---',
-        '',
-      ].join('\n')
-
-      const logLine = rawLog.trim().length > 0
-        ? '> 📎 原始日志: `' + rawLog.trim() + '`\n\n> 由 DSH Obsidian Sync 自动同步\n'
-        : '> 由 DSH Obsidian Sync 自动同步\n'
-
-      const content = frontmatter
-        + '# DSH 会话: ' + title + '\n\n'
-        + '## 基本信息\n\n'
-        + '| 属性 | 值 |\n|------|-----|\n'
-        + '| **日期** | ' + dateStr + ' |\n'
-        + '| **会话ID** | `' + sessionId + '` |\n'
-        + '| **状态** | ✅ 已归档 |\n'
-        + '| **分类** | ' + (tags.length > 0 ? tags.join(' ') : '通用') + ' |\n\n'
-        + '---\n\n'
-        + '## 摘要\n\n' + summary + '\n\n'
-        + (relatedLines.length > 0 ? '## 关联\n\n' + relatedLines.join('\n') + '\n\n---\n' : '')
-        + logLine
-
-      let target: FsTarget
-      try {
-        target = await fs.resolve(currentVaultPath() + '/' + entryRelPath)
-      } catch (_e) {
-        const winPath = currentVaultPath() + '\\' + entryRelPath.split('/').join('\\')
-        try { target = await fs.resolve(winPath) } catch (_e2) { return asJsonValue({ ok: false, error: 'cannot resolve vault entry path', code: 'RESOLVE_FAILED' }) }
-      }
-
-      let skipped = false
-      try {
-        const prev = String(await fs.readText(target))
-        const marker = '## 摘要'
-        const pos = prev.indexOf(marker)
-        if (pos >= 0) {
-          // 摘要区块末尾 = 下一个 `## ` 标题 / `\n---\n` 分隔线 / 空行起的落款引用行中最早出现的位置；
-          // 只比较摘要本身，否则 `## 关联` 与落款会被带入导致全串永不相等、每次重写。
-          const bodyStart = pos + marker.length
-          const boundaries = ['\n## ', '\n---\n', '\n\n> ']
-            .map(sep => prev.indexOf(sep, bodyStart))
-            .filter(i => i !== -1)
-          const bodyEnd = boundaries.length > 0 ? Math.min(...boundaries) : prev.length
-          if (prev.slice(bodyStart, bodyEnd).trim() === summary.trim()) skipped = true
-        }
-      } catch (_e) { /* 尚不存在 */ }
-      if (skipped) return asJsonValue({ ok: true, skipped: true, file: entryRelPath, reason: 'summary unchanged', index: 'unchanged' })
-
-      try {
-        await fs.writeText(target, content, undefined, undefined, widePolicy)
-      } catch (writeErr) {
-        return asJsonValue({ ok: false, error: 'writeText failed: ' + String(writeErr instanceof Error ? writeErr.message : writeErr), code: 'WRITE_FAILED' })
-      }
-
-      const indexOk = await updateIndexFile(entryRelPath, title, sessionId, dateStr)
-      dirty = true
-
-      // 写入成功后自动 git commit + push（vault 有 remote 时才生效）
-      let gitStatus = 'skipped'
-      try {
-        const { execSync } = await import('node:child_process')
-        const out = execSync('git add -A && git status --porcelain', {
-          cwd: currentVaultPath(),
-          timeout: 15000,
-          encoding: 'utf-8',
-        })
-        if (out.trim().length > 0) {
-          const msg = 'archive: ' + entryRelPath.replace(/^04-Archive\//, '')
-          execSync('git commit -m "' + msg.replace(/"/g, '\\"') + '" && git push', {
-            cwd: currentVaultPath(),
-            timeout: 60000,
-            encoding: 'utf-8',
-          })
-          gitStatus = 'pushed'
-        } else {
-          gitStatus = 'no changes'
-        }
-      } catch (gitErr) {
-        gitStatus = 'failed: ' + String(gitErr instanceof Error ? gitErr.message : gitErr)
-      }
-
-      return asJsonValue({ ok: true, skipped: false, file: entryRelPath, index: indexOk ? 'updated' : 'skipped', git: gitStatus })
+      const result = await writeArchiveNote({
+        sessionId: String(args.session_id ?? 'unknown'),
+        title: String(args.title ?? ''),
+        summary: String(args.summary ?? ''),
+        tags: Array.isArray(args.tags) ? args.tags.map(String).slice(0, 10) : [],
+        related: Array.isArray(args.related) ? args.related.map(String).slice(0, 10) : [],
+        rawLog: String(args.raw_log ?? ''),
+        date: String(args.date ?? ''),
+      })
+      return asJsonValue(result)
     },
   }))
 }
