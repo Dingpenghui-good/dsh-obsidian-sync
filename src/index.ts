@@ -46,6 +46,7 @@ import type { Session } from '@deepseek-ai/dsh-session'
 import type { SandboxExecutionPolicy } from '@deepseek-ai/dsh-sandbox'
 import type { JsonValue } from '@deepseek-ai/dsh-util-values'
 import type { BrainHit, BrainNote } from './brain-core.ts'
+import { applyIndexEntry, normalizeShortId } from './index-core.ts'
 import { installBrain, readBrainStats, type BrainOptions } from './brain.ts'
 
 /** 把工具返回值断言为 JsonValue（0.2.0-rc.1 的 execute 要求返回 InferValue，
@@ -546,23 +547,6 @@ export function apply(ctx: Context): void {
     return String(summary || '').trim().length <= NOISE_SUMMARY_MAX_CHARS
   }
 
-  /** 确保 shortId 恰好 8 位：不足时补 SHA-1 前缀 hash。 */
-  function normalizeShortId(sessionId: string): string {
-    // 剥离约定的 "session-" 前缀：传 "session-<uuid>" 时短 ID 应取 uuid 首 8 位，
-    // 而非把 "session" 字样计入（否则 "session-9f10d319…" 会误归一化为 "session9"）。
-    // 仅影响入参形态，幂等键与既有归档（裸 uuid / 8 位短 ID）保持一致。
-    const stripped = sessionId.replace(/^session-/i, '')
-    let s = stripped.replace(/[^A-Za-z0-9]/g, '')
-    if (s.length >= 8) return s.slice(0, 8)
-    // 不足 8 位：用剥离前缀后的 sessionId 的简单 hash 补齐
-    let hash = 0
-    for (let i = 0; i < stripped.length; i++) {
-      hash = ((hash << 5) - hash + stripped.charCodeAt(i)) | 0
-    }
-    s = s + Math.abs(hash).toString(16).slice(0, 8)
-    return s.slice(0, 8)
-  }
-
   /** vault 在 workspace 之外，写入需按调用抬升到 danger-full-access。 */
   const widePolicy: SandboxExecutionPolicy = { mode: 'danger-full-access', workspaceRoot: currentVaultPath() }
 
@@ -715,50 +699,17 @@ export function apply(ctx: Context): void {
 
   /**
    * 更新索引文件（DSH-会话归档-索引.md）的按日期段。
-   * - 找到当天段落（### YYYY-MM-DD）
-   * - 边界：下一个 `### ` 或 `## `（两个井号终止条件）
-   * - 同 shortId 已有条目 → 替换该行（幂等去重）
-   * - 否则追加到当天段落末尾
+   * 具体定位/去重/插入规则见 `applyIndexEntry`（纯函数，可单测）：
+   * - 当天段落已存在 → 同 shortId 替换该行，否则追加到段末；
+   * - 当天段落不存在 → 按日期倒序插入到「## 按日期（倒序）」段的正确位置，
+   *   不会越过 `## 未归档清单` 之类的尾部二级标题。
    */
   async function updateIndexFile(entryRelPath: string, title: string, sessionId: string, dateStr: string): Promise<boolean> {
     try {
       const idxTarget = await fs.resolve(currentVaultPath() + '/DSH-会话归档-索引.md')
       const idxContent = String(await fs.readText(idxTarget))
-      const dayAnchor = '### ' + dateStr
-      const line = '\n- [[' + entryRelPath + '|' + title + ']] (' + dateStr + ', ' + sessionId + ')\n'
-      const dayPos = idxContent.indexOf(dayAnchor)
-      if (dayPos === -1) {
-        // 当天段落不存在：在 "## 主题分类" 之前插入
-        const dayHeader = '\n### ' + dateStr + '\n' + line
-        const tailPos = idxContent.indexOf('\n## 主题分类')
-        const updated = tailPos === -1 ? idxContent + dayHeader : idxContent.slice(0, tailPos) + dayHeader + idxContent.slice(tailPos)
-        await fs.writeText(idxTarget, updated, undefined, undefined, widePolicy)
-        return true
-      }
-      // 找当天段落的结尾：下一个 `### ` 或 `## `（双井号终止）
-      const afterAnchor = dayPos + dayAnchor.length
-      const nextH3 = idxContent.indexOf('\n### ', afterAnchor)
-      const nextH2 = idxContent.indexOf('\n## ', afterAnchor)
-      let dayEnd = -1
-      if (nextH3 !== -1 && nextH2 !== -1) dayEnd = Math.min(nextH3, nextH2)
-      else if (nextH3 !== -1) dayEnd = nextH3
-      else if (nextH2 !== -1) dayEnd = nextH2
-      else dayEnd = idxContent.length
-
-      // 去重：当天段落内是否已有相同 shortId 的条目
-      const daySection = idxContent.slice(afterAnchor, dayEnd)
-      const shortId = normalizeShortId(sessionId)
-      const dedupePattern = new RegExp('^- \\[\\[[^\\]]*' + dateStr + '-' + shortId + '-[^\\]]*\\]\\]\\s*\\([^\\)]*\\)$', 'm')
-      const existingMatch = daySection.match(dedupePattern)
-      let updated: string
-      if (existingMatch !== null) {
-        // 替换已有行（幂等）
-        const absPos = afterAnchor + daySection.indexOf(existingMatch[0])
-        updated = idxContent.slice(0, absPos) + line.trimStart() + '\n' + idxContent.slice(absPos + existingMatch[0].length)
-      } else {
-        // 追加到段落末尾（dayEnd 前）
-        updated = idxContent.slice(0, dayEnd) + line + idxContent.slice(dayEnd)
-      }
+      const updated = applyIndexEntry(idxContent, { entryRelPath, title, sessionId, dateStr })
+      if (updated === idxContent) return false
       await fs.writeText(idxTarget, updated, undefined, undefined, widePolicy)
       return true
     } catch (_e) {

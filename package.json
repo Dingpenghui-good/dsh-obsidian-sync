@@ -46,7 +46,7 @@
     "build": "tsdown",
     "dev": "tsdown --watch",
     "typecheck": "tsc -p tsconfig.json",
-    "test": "node test/brain-retrieval.test.mjs"
+    "test": "node test/brain-retrieval.test.mjs && node test/index-entry.test.mjs"
   },
   "dependencies": {},
   "peerDependencies": {
